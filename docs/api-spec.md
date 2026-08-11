@@ -19,3 +19,9 @@ If the AI response fails schema validation, the scan is saved with `status = "fa
 ## `GET /scans/{scan_id}`
 
 Returns a scan and its generated scenarios. 404s if the scan doesn't exist — this is enforced by API tests (`tests/test_api_scans.py`), not left as an assumption.
+
+## `POST /scans/{scan_id}/run`
+
+Executes every scenario belonging to the scan with Playwright (`app/runner.run_scenario`) and persists the results. Synchronous for the same reason scan creation is: simpler to reason about and test at MVP scale, revisit with a job queue once real usage makes that too slow.
+
+For each scenario, a `Run` row is written (`status = "passed"` only if every step passed, otherwise `"failed"`) along with one `RunStep` row per executed step (status + log message). Screenshot capture was never implemented, so `RunStep.screenshot_path` is always `None` for now — the column exists for when that lands. Returns the list of created runs with their steps. 404s if the scan doesn't exist, same pattern as `GET /scans/{scan_id}`.
