@@ -1,4 +1,3 @@
-from contextlib import contextmanager
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -20,7 +19,6 @@ def make_engine(url: str = "sqlite:///./testcrafter.db"):
 engine = make_engine()
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
-@contextmanager
 def get_session():
     session = SessionLocal()
     try:
