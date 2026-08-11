@@ -1104,8 +1104,318 @@ git commit -m "feat: add Docker Compose setup for local development"
 
 ---
 
+### Task 8: Documentation set
+
+**Files:**
+- Create: `README.md`
+- Create: `README.tr.md`
+- Create: `CONTRIBUTING.md`
+- Create: `LICENSE`
+- Create: `docs/api-spec.md`
+- Create: `docs/ai-provider-interface.md`
+- Create: `docs/data-model.md`
+
+**Interfaces:**
+- Consumes: `docs/architecture.md` (existing), the API routes from Task 5 (`POST /projects`, `GET /projects`, `POST /projects/{project_id}/scans`, `GET /scans/{scan_id}`), the models from Task 1, and the `AIProvider` contract from Task 2.
+- Produces: no code — this task has no downstream code consumers, only human-facing docs.
+
+This task has no tests to run; "verification" means reading each file back and checking it renders correctly and matches the actual API/schema from Tasks 1, 2, and 5.
+
+- [ ] **Step 1: Create `LICENSE`**
+
+Use the standard MIT license text, copyright line `Copyright (c) 2026 Efecan Cengiz`.
+
+```
+MIT License
+
+Copyright (c) 2026 Efecan Cengiz
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+- [ ] **Step 2: Create `docs/data-model.md`**
+
+```markdown
+# Data Model
+
+ER diagram and column reference for the SQLAlchemy models in `backend/app/models.py`.
+
+## Entity-Relationship Diagram
+
+\`\`\`
+User 1──N Project 1──N Scan 1──N Scenario 1──N Run 1──N RunStep
+\`\`\`
+
+## Tables
+
+### users
+| Column | Type | Notes |
+|---|---|---|
+| id | int, PK | |
+| email | string, unique | MVP seeds one demo user (`demo@testcrafter.local`) |
+| created_at | datetime | |
+
+### projects
+| Column | Type | Notes |
+|---|---|---|
+| id | int, PK | |
+| user_id | int, FK -> users.id | |
+| name | string | |
+| base_url | string | |
+| created_at | datetime | |
+
+### scans
+| Column | Type | Notes |
+|---|---|---|
+| id | int, PK | |
+| project_id | int, FK -> projects.id | |
+| target_url | string | |
+| description | text | user-provided context for scenario generation |
+| page_structure_json | text | JSON dump of the crawler's `PageStructure` |
+| ai_provider | string | e.g. `"claude"` |
+| status | string | `pending` \| `analyzing` \| `ready` \| `failed` |
+| created_at | datetime | |
+
+### scenarios
+| Column | Type | Notes |
+|---|---|---|
+| id | int, PK | |
+| scan_id | int, FK -> scans.id | |
+| title | string | |
+| steps_json | text | JSON dump of `list[ScenarioStep]` |
+| created_at | datetime | |
+
+### runs
+| Column | Type | Notes |
+|---|---|---|
+| id | int, PK | |
+| scenario_id | int, FK -> scenarios.id | |
+| status | string | `pending` \| `running` \| `passed` \| `failed` \| `error` |
+| error_message | text, nullable | human-readable summary only |
+| started_at / finished_at | datetime, nullable | |
+
+### run_steps
+| Column | Type | Notes |
+|---|---|---|
+| id | int, PK | |
+| run_id | int, FK -> runs.id | |
+| step_index | int | |
+| status | string | `passed` \| `failed` |
+| screenshot_path | string, nullable | |
+| log_message | text, nullable | |
+
+## Why SQLite now, Postgres-ready later
+
+Schema avoids SQLite-only shortcuts (real foreign keys, no dynamic typing tricks) so a future migration to PostgreSQL only requires changing the connection string in `app/db.py`, not the schema.
+```
+
+- [ ] **Step 3: Create `docs/ai-provider-interface.md`**
+
+```markdown
+# AIProvider Interface
+
+## Contract
+
+\`\`\`python
+class AIProvider(ABC):
+    @abstractmethod
+    def generate_scenarios(self, page_structure: PageStructure, description: str) -> list[GeneratedScenario]:
+        ...
+\`\`\`
+
+Defined in `backend/app/ai/base.py`. `PageStructure`, `GeneratedScenario`, and `ScenarioStep` are Pydantic models in `backend/app/schemas.py`.
+
+- `generate_scenarios` must return already-validated `GeneratedScenario` objects, or raise `ValueError` if the underlying model's output can't be parsed into that schema. Callers (see `backend/app/api/scans.py`) treat a `ValueError` as a scan failure (`status = "failed"`), not a crash.
+- Implementations own their own prompt construction and response parsing; the interface only constrains the boundary.
+
+## Adding a new provider
+
+1. Create `backend/app/ai/<name>_provider.py` with a class implementing `AIProvider`.
+2. Write `backend/tests/test_ai_<name>_provider.py` following the pattern in `test_ai_claude_provider.py` — fake the underlying SDK client, assert on parsed output and on the invalid-JSON error path.
+3. Wire it into `get_ai_provider()` in `backend/app/api/scans.py` (currently hardcoded to Claude; will need a `.env`-driven switch once more than one provider exists).
+
+## Existing adapters
+
+- `ClaudeProvider` (`backend/app/ai/claude_provider.py`) — uses the `anthropic` SDK's `messages.create`, expects a JSON array as the entire response text (see `SYSTEM_PROMPT` in that file).
+```
+
+- [ ] **Step 4: Create `docs/api-spec.md`**
+
+```markdown
+# API Spec
+
+Human-readable design rationale for the REST API. FastAPI's auto-generated OpenAPI docs (`/docs` when the backend is running) are the source of truth for exact request/response shapes — this file explains *why* the endpoints look the way they do.
+
+## `POST /projects`
+
+Creates a project under the single MVP demo user (see `_demo_user` in `backend/app/api/projects.py`). No auth yet — every request is attributed to `demo@testcrafter.local`. This is intentional: the `user_id` foreign key is already in place so adding real auth later is a matter of swapping `_demo_user` for a real session lookup, not a schema change.
+
+## `GET /projects`
+
+Lists all projects for the demo user. Unpaginated for now — fine at MVP scale, would need pagination before this became a real multi-tenant product.
+
+## `POST /projects/{project_id}/scans`
+
+The core endpoint. Synchronously: crawls the target URL, calls the configured AI provider, and persists generated scenarios — all in one request/response cycle. This is deliberately synchronous for the MVP (simpler to reason about and test) even though it means the caller waits for both a page crawl and an AI call. A background job queue is the natural next step once this gets slow in practice, but isn't justified yet.
+
+If the AI response fails schema validation, the scan is saved with `status = "failed"` rather than the request erroring out — the crawl and scan record are still useful even if scenario generation failed.
+
+## `GET /scans/{scan_id}`
+
+Returns a scan and its generated scenarios. 404s if the scan doesn't exist — this is enforced by API tests (`tests/test_api_scans.py`), not left as an assumption.
+```
+
+- [ ] **Step 5: Create `CONTRIBUTING.md`**
+
+```markdown
+# Contributing
+
+## Setup
+
+\`\`\`bash
+cd backend && pip install -e ".[dev]" && playwright install chromium
+cd frontend && npm install
+\`\`\`
+
+Or via Docker: `docker compose up --build`.
+
+## Running tests
+
+\`\`\`bash
+cd backend && pytest -v
+\`\`\`
+
+## Branch / PR flow
+
+- Branch from `main`: `git checkout -b feat/<short-description>`
+- One logical change per PR
+- Every backend change needs a passing test (see `docs/architecture.md` for testing layers)
+- Open a PR against `main`; CI must pass before merge
+
+## Commit messages
+
+Conventional-commit style prefixes: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`. No AI co-author trailers — see `CLAUDE.md`.
+
+## Code style
+
+- Comments explain WHY, not WHAT
+- No speculative abstractions — see `docs/architecture.md` decisions log for the reasoning behind current boundaries (e.g. why the AI layer is abstracted from day one but auth isn't built yet)
+```
+
+- [ ] **Step 6: Create `README.md`**
+
+```markdown
+# testcrafter
+
+AI-powered test scenario generator + automated runner. Give it a URL and a short description of what to test — it crawls the page, asks an AI provider to generate test scenarios, runs them with Playwright, and shows pass/fail results with screenshots.
+
+🇹🇷 [Türkçe](README.tr.md)
+
+## Why
+
+A single project demonstrating backend API design, AI integration, and QA test automation together. See `docs/architecture.md` for the full design rationale.
+
+## Stack
+
+FastAPI · SQLAlchemy · SQLite · Playwright · React (Vite) · Claude API (pluggable AI provider layer)
+
+## Quick start
+
+\`\`\`bash
+git clone <repo-url>
+cd testcrafter
+cp .env.example .env   # add your ANTHROPIC_API_KEY
+docker compose up --build
+\`\`\`
+
+Backend: http://localhost:8000 (docs at `/docs`)
+Frontend: http://localhost:5173
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [API spec](docs/api-spec.md)
+- [AI provider interface](docs/ai-provider-interface.md)
+- [Data model](docs/data-model.md)
+- [Contributing](CONTRIBUTING.md)
+
+## License
+
+MIT — see [LICENSE](LICENSE)
+```
+
+- [ ] **Step 7: Create `README.tr.md`**
+
+```markdown
+# testcrafter
+
+AI destekli test senaryosu üretici + otomatik çalıştırıcı. Bir URL ve kısa bir test açıklaması ver — sayfayı tarar, bir AI sağlayıcısına test senaryoları ürettirir, Playwright ile çalıştırır, pass/fail sonuçlarını ekran görüntüleriyle gösterir.
+
+🇬🇧 [English](README.md)
+
+## Neden
+
+Backend API tasarımı, AI entegrasyonu ve QA test otomasyonunu tek bir projede bir araya getiren bir çalışma. Tam tasarım gerekçesi için `docs/architecture.md`.
+
+## Stack
+
+FastAPI · SQLAlchemy · SQLite · Playwright · React (Vite) · Claude API (değiştirilebilir AI sağlayıcı katmanı)
+
+## Hızlı başlangıç
+
+\`\`\`bash
+git clone <repo-url>
+cd testcrafter
+cp .env.example .env   # ANTHROPIC_API_KEY ekle
+docker compose up --build
+\`\`\`
+
+Backend: http://localhost:8000 (dokümantasyon `/docs`)
+Frontend: http://localhost:5173
+
+## Dokümantasyon
+
+- [Mimari](docs/architecture.md)
+- [API spec](docs/api-spec.md)
+- [AI sağlayıcı arayüzü](docs/ai-provider-interface.md)
+- [Veri modeli](docs/data-model.md)
+- [Katkı rehberi](CONTRIBUTING.md)
+
+## Lisans
+
+MIT — bkz. [LICENSE](LICENSE)
+```
+
+- [ ] **Step 8: Read each created file back and cross-check against the actual routes/schema**
+
+Confirm: `docs/api-spec.md` endpoint list matches the routes registered in `backend/app/main.py` (Task 5); `docs/data-model.md` columns match `backend/app/models.py` (Task 1) exactly; `docs/ai-provider-interface.md` method signature matches `backend/app/ai/base.py` (Task 2). Fix any drift found.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add README.md README.tr.md CONTRIBUTING.md LICENSE docs/api-spec.md docs/ai-provider-interface.md docs/data-model.md
+git commit -m "docs: add README (EN/TR), CONTRIBUTING, LICENSE, and API/data-model docs"
+```
+
+---
+
 ## Not Covered By This Plan
 
-- `docs/api-spec.md`, `docs/ai-provider-interface.md`, `docs/data-model.md`, `README.md`/`README.tr.md`, `CONTRIBUTING.md`, `LICENSE` — a follow-up documentation-focused plan once the walking skeleton is verified working end-to-end.
 - Gemini/DeepSeek/Qwen adapters — follow the same pattern as `ClaudeProvider` (Task 2) once the Claude path is proven.
 - E2E Playwright test of the dashboard's own flow, and GitHub Actions CI — follow-up plan once the frontend loop is manually verified.
