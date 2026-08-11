@@ -16,6 +16,7 @@ dist/
 
 # Env
 .env
+mcp.json
 
 # OS
 .DS_Store
