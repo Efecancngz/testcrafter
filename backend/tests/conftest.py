@@ -10,3 +10,15 @@ def db_session():
     session = Session()
     yield session
     session.close()
+
+from fastapi.testclient import TestClient
+from app.db import get_session
+from app.main import app
+
+@pytest.fixture
+def client(db_session):
+    def override_get_session():
+        yield db_session
+    app.dependency_overrides[get_session] = override_get_session
+    yield TestClient(app)
+    app.dependency_overrides.clear()
