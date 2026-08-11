@@ -1,6 +1,6 @@
 # testcrafter
 
-AI destekli test senaryosu üretici + otomatik çalıştırıcı. Bir URL ve kısa bir test açıklaması ver — sayfayı tarar, bir AI sağlayıcısına test senaryoları ürettirir, Playwright ile çalıştırır, pass/fail sonuçlarını ekran görüntüleriyle gösterir.
+AI destekli test senaryosu üretici + otomatik çalıştırıcı. Bir URL ve kısa bir test açıklaması ver — sayfayı tarar, bir AI sağlayıcısına test senaryoları ürettirir, Playwright ile çalıştırır, pass/fail sonuçlarını gösterir.
 
 🇬🇧 [English](README.md)
 

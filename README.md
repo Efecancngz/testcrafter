@@ -1,6 +1,6 @@
 # testcrafter
 
-AI-powered test scenario generator + automated runner. Give it a URL and a short description of what to test — it crawls the page, asks an AI provider to generate test scenarios, runs them with Playwright, and shows pass/fail results with screenshots.
+AI-powered test scenario generator + automated runner. Give it a URL and a short description of what to test — it crawls the page, asks an AI provider to generate test scenarios, runs them with Playwright, and shows pass/fail results.
 
 🇹🇷 [Türkçe](README.tr.md)
 
