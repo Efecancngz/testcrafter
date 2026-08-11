@@ -1,5 +1,6 @@
 from pathlib import Path
 from unittest.mock import patch
+from playwright.sync_api import Error as PlaywrightError
 from app.schemas import PageStructure, PageElement, GeneratedScenario, ScenarioStep
 
 FIXTURE_URL = (Path(__file__).parent / "fixtures" / "login_page.html").as_uri()
@@ -23,6 +24,36 @@ def test_create_scan_generates_scenarios(client):
     assert body["status"] == "ready"
     assert len(body["scenarios"]) == 1
     assert body["scenarios"][0]["title"] == "Click submit"
+
+def test_create_scan_marks_failed_when_crawl_fails(client):
+    project = client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
+
+    with patch("app.api.scans.extract_page_structure", side_effect=PlaywrightError("net::ERR_NAME_NOT_RESOLVED")):
+        resp = client.post(f"/projects/{project['id']}/scans", json={
+            "target_url": "https://this-domain-does-not-exist.invalid",
+            "description": "Check submit button",
+        })
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["status"] == "failed"
+    assert body["scenarios"] == []
+
+def test_create_scan_marks_failed_when_ai_provider_not_configured(client):
+    project = client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
+
+    fake_structure = PageStructure(url="https://example.com", elements=[])
+
+    with patch("app.api.scans.extract_page_structure", return_value=fake_structure), \
+         patch("app.api.scans.get_ai_provider", side_effect=TypeError("missing ANTHROPIC_API_KEY")):
+        resp = client.post(f"/projects/{project['id']}/scans", json={
+            "target_url": "https://example.com",
+            "description": "Check submit button",
+        })
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["status"] == "failed"
 
 def test_get_scan_not_found_returns_404(client):
     resp = client.get("/scans/999")

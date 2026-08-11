@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
+from playwright.sync_api import Error as PlaywrightError
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.db import get_session
@@ -53,17 +54,29 @@ class RunOut(BaseModel):
 
 @router.post("/projects/{project_id}/scans", response_model=ScanOut, status_code=201)
 def create_scan(project_id: int, payload: ScanCreate, session: Session = Depends(get_session)):
-    page_structure = extract_page_structure(payload.target_url)
     scan = Scan(
         project_id=project_id,
         target_url=payload.target_url,
         description=payload.description,
-        page_structure_json=page_structure.model_dump_json(),
+        page_structure_json="",
         ai_provider="claude",
         status="analyzing",
     )
     session.add(scan)
     session.flush()
+
+    try:
+        page_structure = extract_page_structure(payload.target_url)
+    except PlaywrightError:
+        # Bad/unreachable target_url is external input, not a bug in our code —
+        # record the scan as failed instead of a 500, per docs/api-spec.md.
+        logger.exception("crawl failed for scan %s (%s)", scan.id, payload.target_url)
+        scan.status = "failed"
+        session.commit()
+        session.refresh(scan)
+        return ScanOut(id=scan.id, target_url=scan.target_url, status=scan.status, scenarios=[])
+
+    scan.page_structure_json = page_structure.model_dump_json()
 
     try:
         provider = get_ai_provider()
@@ -72,6 +85,13 @@ def create_scan(project_id: int, payload: ScanCreate, session: Session = Depends
             session.add(Scenario(scan_id=scan.id, title=g.title, steps_json=json.dumps([s.model_dump() for s in g.steps])))
         scan.status = "ready"
     except ValueError:
+        logger.exception("AI provider returned an invalid response for scan %s", scan.id)
+        scan.status = "failed"
+    except Exception:
+        # Catches AI-provider construction/config failures too, e.g. missing
+        # ANTHROPIC_API_KEY raises TypeError from anthropic.Anthropic(), which
+        # a bare `except ValueError` would let escape as an unhandled 500.
+        logger.exception("AI provider is not configured for scan %s", scan.id)
         scan.status = "failed"
 
     session.commit()
