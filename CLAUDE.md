@@ -1,5 +1,7 @@
 # testcrafter
 
+> Ortak standart: `C:\Users\efeca\OneDrive\Belgeler\obsidian\claudesidian\06_Metadata\Reference\Yazılım Projesi Standartları.md` (commit/branch/README/test/secrets/lisans + kodlama öncesi planlama). Bu dosyadaki kurallar zaten o standarda uygun, çakışırsa buradaki daha spesifik olan geçerli.
+
 AI-powered test scenario generator + Playwright runner. User submits a URL + short description, an AI provider generates test scenarios, Playwright executes them, results show on a React dashboard.
 
 Full design rationale: `docs/architecture.md`. Read it before making architectural changes.
