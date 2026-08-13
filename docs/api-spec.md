@@ -24,6 +24,8 @@ The core endpoint. Requires auth, and 404s (not 403) if `project_id` exists but 
 
 If the AI response fails schema validation, the scan is saved with `status = "failed"` rather than the request erroring out — the crawl and scan record are still useful even if scenario generation failed.
 
+If the crawl detects a bot-verification challenge page (Cloudflare, reCAPTCHA, hCaptcha) instead of real content, the scan is saved with `status = "blocked"` and `blocked_reason` set to the detected provider name — scenario generation is never attempted against challenge-page content.
+
 ## `GET /scans/{scan_id}`
 
 Returns a scan and its generated scenarios. Requires auth, and 404s if the scan doesn't exist *or* belongs to a different user's project — same not-revealing-existence rationale as above. Enforced by API tests (`tests/test_api_scans.py`), not left as an assumption.
