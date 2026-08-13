@@ -106,6 +106,19 @@ def test_run_scenario_normalizes_known_action_synonyms(tmp_path):
 
     assert all(r.status == "passed" for r in results)
 
+def test_run_scenario_normalizes_titlecased_canonical_action(tmp_path):
+    scenario = GeneratedScenario(
+        title="Title-cased canonical action resolves correctly",
+        steps=[
+            ScenarioStep(action="Goto", value=FIXTURE_URL),
+            ScenarioStep(action="Click", selector="#submit"),
+        ],
+    )
+
+    results = run_scenario(scenario, base_url="", screenshot_dir=tmp_path)
+
+    assert all(r.status == "passed" for r in results)
+
 def test_run_scenario_fails_for_genuinely_unknown_action(tmp_path):
     scenario = GeneratedScenario(
         title="Unrecognized action",

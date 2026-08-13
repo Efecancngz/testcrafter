@@ -9,9 +9,7 @@ logger = logging.getLogger(__name__)
 _ACTION_SYNONYMS = {
     "navigate": "goto",
     "visit": "goto",
-    "open": "goto",
     "tap": "click",
-    "press": "click",
     "type": "fill",
     "input": "fill",
     "enter_text": "fill",
@@ -20,9 +18,13 @@ _ACTION_SYNONYMS = {
     "check_text": "expect_text",
     "assert_url": "expect_url",
     "asserturl": "expect_url",
+    "check_url": "expect_url",
     "assertvisibility": "expect_visible",
     "assert_visible": "expect_visible",
+    "assertvisible": "expect_visible",
     "checkvisibility": "expect_visible",
+    "checkvisible": "expect_visible",
+    "check_visible": "expect_visible",
 }
 
 @dataclass
@@ -45,7 +47,8 @@ def run_scenario(scenario: GeneratedScenario, base_url: str, screenshot_dir: Pat
     return results
 
 def _normalize_action(action: str) -> str:
-    return _ACTION_SYNONYMS.get(action.lower(), action)
+    normalized = action.lower()
+    return _ACTION_SYNONYMS.get(normalized, normalized)
 
 def _run_step(page, step, base_url: str, screenshot_dir: Path, step_index: int) -> StepResult:
     action = _normalize_action(step.action)
@@ -64,7 +67,11 @@ def _run_step(page, step, base_url: str, screenshot_dir: Path, step_index: int) 
             if step.expected not in page.url:
                 return _finish(page, screenshot_dir, step_index, "failed", f"expected url containing '{step.expected}', got '{page.url}'")
         elif action == "expect_visible":
-            if not page.is_visible(step.selector):
+            # 5000ms: short enough to keep the test suite fast, long enough to
+            # tolerate realistic render delays on dynamic pages (SPAs/React).
+            try:
+                page.wait_for_selector(step.selector, state="visible", timeout=5000)
+            except Exception:
                 return _finish(page, screenshot_dir, step_index, "failed", f"element '{step.selector}' is not visible")
         else:
             return _finish(page, screenshot_dir, step_index, "failed", f"unknown action: {step.action}")
