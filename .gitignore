@@ -1,6 +1,7 @@
 .worktrees/
 .superpowers/
 backend/data/
+backend/alembic/README
 
 # Python
 __pycache__/

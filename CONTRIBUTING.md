@@ -3,8 +3,7 @@
 ## Setup
 
 ```bash
-cd backend && pip install -e ".[dev]" && playwright install chromium
-cd backend && alembic upgrade head   # run before first start, and again after pulling any migration-adding change
+cd backend && pip install -e ".[dev]" && playwright install chromium && alembic upgrade head   # alembic step: run before first start, and again after pulling any migration-adding change
 cd frontend && npm install
 ```
 
