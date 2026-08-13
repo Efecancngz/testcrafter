@@ -22,6 +22,6 @@ Final review'in bu fix dalgasına dönük scoped re-review'ini tamamla; temizse 
 - `backend/tests/test_ai_gemini_provider.py` — mevcut fake'ler yeni `config=` kwarg'ını sorunsuz kabul ediyor
 
 ## Son 3 commit
-- cd689dc fix: address final whole-branch review findings for gemini adapter
+- 6cd2e26 fix: address final whole-branch review findings for gemini adapter
 - 1c38e53 docs: document Gemini adapter and AI_PROVIDER selection
 - 95f8dec feat: select AI provider via AI_PROVIDER env var
