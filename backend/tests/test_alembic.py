@@ -1,7 +1,9 @@
 from pathlib import Path
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect
+from alembic.autogenerate import compare_metadata
+from alembic.migration import MigrationContext
+from sqlalchemy import create_engine
 from app.db import Base
 from app import models  # noqa: F401 — import registers all model classes on Base.metadata
 
@@ -17,13 +19,8 @@ def test_alembic_upgrade_head_matches_current_models(tmp_path):
     command.upgrade(alembic_cfg, "head")
 
     engine = create_engine(db_url)
-    inspector = inspect(engine)
-    migrated_tables = set(inspector.get_table_names()) - {"alembic_version"}
-    model_tables = set(Base.metadata.tables.keys())
+    with engine.connect() as conn:
+        migration_context = MigrationContext.configure(conn)
+        diff = compare_metadata(migration_context, Base.metadata)
 
-    assert migrated_tables == model_tables
-
-    for table_name in model_tables:
-        migrated_columns = {col["name"] for col in inspector.get_columns(table_name)}
-        model_columns = {col.name for col in Base.metadata.tables[table_name].columns}
-        assert migrated_columns == model_columns, f"column mismatch in {table_name}"
+    assert diff == [], f"schema drift between migrations and models: {diff}"
