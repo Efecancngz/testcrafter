@@ -135,6 +135,11 @@ export default function App() {
       {scan && (
         <div>
           <h2>Status: {scan.status}</h2>
+          {scan.status === "blocked" && (
+            <p style={{ color: "#b8860b" }}>
+              This site uses {scan.blocked_reason} bot protection and couldn't be scanned.
+            </p>
+          )}
           <ul>
             {scan.scenarios.map((s) => (
               <li key={s.id}>{s.title}</li>
