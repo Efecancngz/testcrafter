@@ -8,17 +8,34 @@ def test_list_projects_without_session_override_does_not_500():
     from app.main import app
 
     with TestClient(app) as real_client:
-        resp = real_client.get("/projects")
+        token = real_client.post("/auth/register", json={"email": "real-deployment-check@example.com", "password": "s3cret!"}).json()["access_token"]
+        resp = real_client.get("/projects", headers={"Authorization": f"Bearer {token}"})
 
     assert resp.status_code == 200
 
 
-def test_create_and_list_project(client):
-    resp = client.post("/projects", json={"name": "Demo Site", "base_url": "https://example.com"})
+def test_create_and_list_project(authenticated_client):
+    resp = authenticated_client.post("/projects", json={"name": "Demo Site", "base_url": "https://example.com"})
     assert resp.status_code == 201
     body = resp.json()
     assert body["name"] == "Demo Site"
 
-    list_resp = client.get("/projects")
+    list_resp = authenticated_client.get("/projects")
     assert list_resp.status_code == 200
     assert len(list_resp.json()) == 1
+
+
+def test_create_project_requires_auth(client):
+    resp = client.post("/projects", json={"name": "Demo Site", "base_url": "https://example.com"})
+    assert resp.status_code == 401
+
+
+def test_list_projects_only_returns_own_projects(client):
+    token_a = client.post("/auth/register", json={"email": "a@example.com", "password": "pw"}).json()["access_token"]
+    client.post("/projects", json={"name": "A's project", "base_url": "https://a.example.com"}, headers={"Authorization": f"Bearer {token_a}"})
+
+    token_b = client.post("/auth/register", json={"email": "b@example.com", "password": "pw"}).json()["access_token"]
+    resp = client.get("/projects", headers={"Authorization": f"Bearer {token_b}"})
+
+    assert resp.status_code == 200
+    assert resp.json() == []

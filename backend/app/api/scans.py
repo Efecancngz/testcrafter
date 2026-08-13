@@ -8,7 +8,8 @@ from playwright.sync_api import Error as PlaywrightError
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.db import get_session
-from app.models import Run, RunStep, Scan, Scenario
+from app.models import Project, Run, RunStep, Scan, Scenario, User
+from app.auth import get_current_user
 from app.crawler import extract_page_structure
 from app.ai.base import AIProvider
 from app.runner import run_scenario
@@ -30,6 +31,17 @@ def get_ai_provider() -> AIProvider:
         from google import genai
         return GeminiProvider(client=genai.Client())
     raise ValueError(f"unknown AI_PROVIDER: {provider_name}")
+
+def _get_owned_scan(scan_id: int, user: User, session: Session) -> Scan:
+    scan = (
+        session.query(Scan)
+        .join(Project, Scan.project_id == Project.id)
+        .filter(Scan.id == scan_id, Project.user_id == user.id)
+        .first()
+    )
+    if scan is None:
+        raise HTTPException(status_code=404, detail="scan not found")
+    return scan
 
 class ScanCreate(BaseModel):
     target_url: str
@@ -65,7 +77,10 @@ class RunOut(BaseModel):
     model_config = {"from_attributes": True}
 
 @router.post("/projects/{project_id}/scans", response_model=ScanOut, status_code=201)
-def create_scan(project_id: int, payload: ScanCreate, session: Session = Depends(get_session)):
+def create_scan(project_id: int, payload: ScanCreate, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    project = session.query(Project).filter_by(id=project_id, user_id=user.id).first()
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
     scan = Scan(
         project_id=project_id,
         target_url=payload.target_url,
@@ -112,18 +127,14 @@ def create_scan(project_id: int, payload: ScanCreate, session: Session = Depends
     return ScanOut(id=scan.id, target_url=scan.target_url, status=scan.status, scenarios=scenarios)
 
 @router.get("/scans/{scan_id}", response_model=ScanOut)
-def get_scan(scan_id: int, session: Session = Depends(get_session)):
-    scan = session.get(Scan, scan_id)
-    if scan is None:
-        raise HTTPException(status_code=404, detail="scan not found")
+def get_scan(scan_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    scan = _get_owned_scan(scan_id, user, session)
     scenarios = session.query(Scenario).filter_by(scan_id=scan.id).all()
     return ScanOut(id=scan.id, target_url=scan.target_url, status=scan.status, scenarios=scenarios)
 
 @router.post("/scans/{scan_id}/run", response_model=list[RunOut])
-def run_scan(scan_id: int, session: Session = Depends(get_session)):
-    scan = session.get(Scan, scan_id)
-    if scan is None:
-        raise HTTPException(status_code=404, detail="scan not found")
+def run_scan(scan_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    scan = _get_owned_scan(scan_id, user, session)
 
     scenarios = session.query(Scenario).filter_by(scan_id=scan.id).all()
     runs: list[Run] = []

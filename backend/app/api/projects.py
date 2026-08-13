@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.db import get_session
 from app.models import Project, User
+from app.auth import get_current_user
 
 router = APIRouter()
 
@@ -16,17 +17,8 @@ class ProjectOut(BaseModel):
     base_url: str
     model_config = {"from_attributes": True}
 
-def _demo_user(session: Session) -> User:
-    user = session.query(User).filter_by(email="demo@testcrafter.local").first()
-    if user is None:
-        user = User(email="demo@testcrafter.local", password_hash="not-a-real-hash")
-        session.add(user)
-        session.flush()
-    return user
-
 @router.post("/projects", response_model=ProjectOut, status_code=201)
-def create_project(payload: ProjectCreate, session: Session = Depends(get_session)):
-    user = _demo_user(session)
+def create_project(payload: ProjectCreate, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     project = Project(user_id=user.id, name=payload.name, base_url=payload.base_url)
     session.add(project)
     session.commit()
@@ -34,5 +26,5 @@ def create_project(payload: ProjectCreate, session: Session = Depends(get_sessio
     return project
 
 @router.get("/projects", response_model=list[ProjectOut])
-def list_projects(session: Session = Depends(get_session)):
-    return session.query(Project).all()
+def list_projects(user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    return session.query(Project).filter_by(user_id=user.id).all()

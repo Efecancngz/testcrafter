@@ -26,3 +26,9 @@ def client(db_session):
     app.dependency_overrides[get_session] = override_get_session
     yield TestClient(app)
     app.dependency_overrides.clear()
+
+@pytest.fixture
+def authenticated_client(client):
+    token = client.post("/auth/register", json={"email": "test@example.com", "password": "s3cret!"}).json()["access_token"]
+    client.headers.update({"Authorization": f"Bearer {token}"})
+    return client
