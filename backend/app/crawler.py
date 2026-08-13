@@ -44,25 +44,26 @@ def extract_page_structure(url: str) -> PageStructure:
     elements: list[PageElement] = []
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page()
-        response = page.goto(url)
+        try:
+            page = browser.new_page()
+            response = page.goto(url)
 
-        provider = _detect_bot_challenge(page, response)
-        if provider is not None:
-            raise BotChallengeDetected(provider)
+            provider = _detect_bot_challenge(page, response)
+            if provider is not None:
+                raise BotChallengeDetected(provider)
 
-        for role, css in _SELECTORS.items():
-            for i, handle in enumerate(page.query_selector_all(css)):
-                el_id = handle.get_attribute("id")
-                selector = f"#{el_id}" if el_id else f"{css} >> nth={i}"
-                elements.append(
-                    PageElement(
-                        tag=handle.evaluate("el => el.tagName.toLowerCase()"),
-                        role=role,
-                        selector=selector,
-                        text=handle.text_content(),
+            for role, css in _SELECTORS.items():
+                for i, handle in enumerate(page.query_selector_all(css)):
+                    el_id = handle.get_attribute("id")
+                    selector = f"#{el_id}" if el_id else f"{css} >> nth={i}"
+                    elements.append(
+                        PageElement(
+                            tag=handle.evaluate("el => el.tagName.toLowerCase()"),
+                            role=role,
+                            selector=selector,
+                            text=handle.text_content(),
+                        )
                     )
-                )
-
-        browser.close()
+        finally:
+            browser.close()
     return PageStructure(url=url, elements=elements)

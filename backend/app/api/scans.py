@@ -61,6 +61,15 @@ class ScanOut(BaseModel):
     blocked_reason: str | None = None
     scenarios: list[ScenarioOut]
 
+def _scan_out(scan: Scan, scenarios: list[Scenario]) -> "ScanOut":
+    return ScanOut(
+        id=scan.id,
+        target_url=scan.target_url,
+        status=scan.status,
+        blocked_reason=scan.blocked_reason,
+        scenarios=scenarios,
+    )
+
 class RunStepOut(BaseModel):
     id: int
     step_index: int
@@ -102,7 +111,7 @@ def create_scan(project_id: int, payload: ScanCreate, user: User = Depends(get_c
         scan.blocked_reason = e.provider
         session.commit()
         session.refresh(scan)
-        return ScanOut(id=scan.id, target_url=scan.target_url, status=scan.status, blocked_reason=scan.blocked_reason, scenarios=[])
+        return _scan_out(scan, [])
     except PlaywrightError:
         # Bad/unreachable target_url is external input, not a bug in our code —
         # record the scan as failed instead of a 500, per docs/api-spec.md.
@@ -110,7 +119,7 @@ def create_scan(project_id: int, payload: ScanCreate, user: User = Depends(get_c
         scan.status = "failed"
         session.commit()
         session.refresh(scan)
-        return ScanOut(id=scan.id, target_url=scan.target_url, status=scan.status, scenarios=[])
+        return _scan_out(scan, [])
 
     scan.page_structure_json = page_structure.model_dump_json()
 
@@ -133,13 +142,13 @@ def create_scan(project_id: int, payload: ScanCreate, user: User = Depends(get_c
     session.commit()
     session.refresh(scan)
     scenarios = session.query(Scenario).filter_by(scan_id=scan.id).all()
-    return ScanOut(id=scan.id, target_url=scan.target_url, status=scan.status, scenarios=scenarios)
+    return _scan_out(scan, scenarios)
 
 @router.get("/scans/{scan_id}", response_model=ScanOut)
 def get_scan(scan_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     scan = _get_owned_scan(scan_id, user, session)
     scenarios = session.query(Scenario).filter_by(scan_id=scan.id).all()
-    return ScanOut(id=scan.id, target_url=scan.target_url, status=scan.status, blocked_reason=scan.blocked_reason, scenarios=scenarios)
+    return _scan_out(scan, scenarios)
 
 @router.post("/scans/{scan_id}/run", response_model=list[RunOut])
 def run_scan(scan_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
