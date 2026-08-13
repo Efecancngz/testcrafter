@@ -8,7 +8,17 @@ def test_list_projects_without_session_override_does_not_500():
     # real request with AttributeError on '_GeneratorContextManager'). This
     # hits the app exactly as a real deployment would, with no override.
     from fastapi.testclient import TestClient
+    from app.db import Base, engine
     from app.main import app
+
+    # Since main.py no longer runs Base.metadata.create_all() at import time
+    # (schema creation moved to `alembic upgrade head`, run separately in
+    # production/Docker), this test must ensure the schema exists on the
+    # default engine's database itself, or it hits a real, table-less
+    # sqlite file and fails with "no such table: users" instead of
+    # exercising the session-handling behavior it's actually regression
+    # testing for.
+    Base.metadata.create_all(engine)
 
     with TestClient(app) as real_client:
         email = f"real-deployment-check-{uuid.uuid4()}@example.com"

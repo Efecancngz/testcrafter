@@ -1,11 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.db import Base, engine
 from app.api.auth import router as auth_router
 from app.api.projects import router as projects_router
 from app.api.scans import router as scans_router
-
-Base.metadata.create_all(engine)
 
 app = FastAPI(title="testcrafter")
 app.add_middleware(
