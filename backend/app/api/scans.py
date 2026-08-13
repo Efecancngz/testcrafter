@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from playwright.sync_api import Error as PlaywrightError
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -152,7 +153,7 @@ def run_scan(scan_id: int, user: User = Depends(get_current_user), session: Sess
         run.status = "passed" if all(r.status == "passed" for r in results) else "failed"
 
         for index, result in enumerate(results):
-            screenshot_path = f"/screenshots/{run.id}/{Path(result.screenshot_path).name}" if result.screenshot_path else None
+            screenshot_path = f"/runs/{run.id}/screenshots/{index}" if result.screenshot_path else None
             session.add(RunStep(run_id=run.id, step_index=index, status=result.status, log_message=result.log_message, screenshot_path=screenshot_path))
         runs.append(run)
 
@@ -174,3 +175,21 @@ def run_scan(scan_id: int, user: User = Depends(get_current_user), session: Sess
         )
         for run in runs
     ]
+
+@router.get("/runs/{run_id}/screenshots/{step_index}")
+def get_screenshot(run_id: int, step_index: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    owned = (
+        session.query(RunStep)
+        .join(Run, RunStep.run_id == Run.id)
+        .join(Scenario, Run.scenario_id == Scenario.id)
+        .join(Scan, Scenario.scan_id == Scan.id)
+        .join(Project, Scan.project_id == Project.id)
+        .filter(RunStep.run_id == run_id, RunStep.step_index == step_index, Project.user_id == user.id)
+        .first()
+    )
+    if owned is None:
+        raise HTTPException(status_code=404, detail="screenshot not found")
+    file_path = SCREENSHOTS_DIR / str(run_id) / f"{step_index}.png"
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="screenshot not found")
+    return FileResponse(file_path)

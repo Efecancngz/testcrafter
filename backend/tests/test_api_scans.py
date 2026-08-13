@@ -142,6 +142,9 @@ def test_run_scan_executes_scenarios_and_persists_results(authenticated_client, 
     assert runs[0]["status"] == "passed"
     assert len(runs[0]["steps"]) == 2
     assert all(step["status"] == "passed" for step in runs[0]["steps"])
+    run_id = runs[0]["id"]
+    for index, step in enumerate(runs[0]["steps"]):
+        assert step["screenshot_path"] == f"/runs/{run_id}/screenshots/{index}"
 
 def test_run_scan_not_found_returns_404(authenticated_client):
     resp = authenticated_client.post("/scans/999/run")
@@ -184,3 +187,66 @@ def test_get_ai_provider_rejects_unknown_value(monkeypatch):
     from app.api.scans import get_ai_provider
     with pytest.raises(ValueError, match="unknown AI_PROVIDER"):
         get_ai_provider()
+
+
+def test_screenshot_proxy_serves_file_to_owner(authenticated_client, monkeypatch, tmp_path):
+    monkeypatch.setattr("app.api.scans.SCREENSHOTS_DIR", tmp_path)
+
+    project = authenticated_client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
+
+    fake_structure = PageStructure(url=FIXTURE_URL, elements=[PageElement(tag="button", role="button", selector="#submit", text="Log in")])
+    fake_scenarios = [
+        GeneratedScenario(
+            title="Submit button has correct label",
+            steps=[ScenarioStep(action="goto", value=FIXTURE_URL)],
+        )
+    ]
+
+    with patch("app.api.scans.extract_page_structure", return_value=fake_structure), \
+         patch("app.api.scans.get_ai_provider") as mock_get_provider:
+        mock_get_provider.return_value.generate_scenarios.return_value = fake_scenarios
+        scan = authenticated_client.post(f"/projects/{project['id']}/scans", json={
+            "target_url": FIXTURE_URL,
+            "description": "x",
+        }).json()
+
+    run_resp = authenticated_client.post(f"/scans/{scan['id']}/run")
+    run_id = run_resp.json()[0]["id"]
+    on_disk_path = tmp_path / str(run_id) / "0.png"
+    assert on_disk_path.is_file()
+    expected_bytes = on_disk_path.read_bytes()
+
+    resp = authenticated_client.get(f"/runs/{run_id}/screenshots/0")
+
+    assert resp.status_code == 200
+    assert resp.content == expected_bytes
+
+
+def test_screenshot_proxy_requires_auth(client):
+    resp = client.get("/runs/1/screenshots/0")
+    assert resp.status_code == 401
+
+
+def test_screenshot_proxy_returns_404_for_run_owned_by_another_user(client, monkeypatch, tmp_path):
+    monkeypatch.setattr("app.api.scans.SCREENSHOTS_DIR", tmp_path)
+
+    token_a = client.post("/auth/register", json={"email": "a@example.com", "password": "pw"}).json()["access_token"]
+    project = client.post("/projects", json={"name": "A's project", "base_url": "https://example.com"}, headers={"Authorization": f"Bearer {token_a}"}).json()
+
+    fake_structure = PageStructure(url=FIXTURE_URL, elements=[PageElement(tag="button", role="button", selector="#submit", text="Log in")])
+    fake_scenarios = [GeneratedScenario(title="Submit button has correct label", steps=[ScenarioStep(action="goto", value=FIXTURE_URL)])]
+    with patch("app.api.scans.extract_page_structure", return_value=fake_structure), \
+         patch("app.api.scans.get_ai_provider") as mock_get_provider:
+        mock_get_provider.return_value.generate_scenarios.return_value = fake_scenarios
+        scan = client.post(f"/projects/{project['id']}/scans", json={"target_url": FIXTURE_URL, "description": "x"}, headers={"Authorization": f"Bearer {token_a}"}).json()
+    run_id = client.post(f"/scans/{scan['id']}/run", headers={"Authorization": f"Bearer {token_a}"}).json()[0]["id"]
+
+    token_b = client.post("/auth/register", json={"email": "b@example.com", "password": "pw"}).json()["access_token"]
+    resp = client.get(f"/runs/{run_id}/screenshots/0", headers={"Authorization": f"Bearer {token_b}"})
+
+    assert resp.status_code == 404
+
+
+def test_screenshot_proxy_returns_404_for_nonexistent_run(authenticated_client):
+    resp = authenticated_client.get("/runs/999999/screenshots/0")
+    assert resp.status_code == 404
