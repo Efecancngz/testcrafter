@@ -2,6 +2,10 @@ import pytest
 from sqlalchemy.orm import sessionmaker
 from app.db import Base, make_engine
 
+@pytest.fixture(autouse=True)
+def _test_secret_key(monkeypatch):
+    monkeypatch.setenv("SECRET_KEY", "test-secret-key-do-not-use-in-production")
+
 @pytest.fixture
 def db_session():
     engine = make_engine("sqlite:///:memory:")

@@ -10,6 +10,7 @@ class User(Base):
     __tablename__ = "users"
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String, unique=True)
+    password_hash: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 class Project(Base):
