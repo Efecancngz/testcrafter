@@ -33,6 +33,18 @@ target_metadata = Base.metadata
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
+# `app/db.py` is the single source of truth for the app's default database
+# URL. Only fall back to it when nothing else has already set
+# sqlalchemy.url — an explicit value from alembic.ini, or a test pointing at
+# a temp database via `alembic_cfg.set_main_option("sqlalchemy.url", ...)`
+# (see backend/tests/test_alembic.py), must still win. This just keeps a
+# bare `alembic upgrade head` pointed at the same database the app actually
+# uses, without silently overriding an explicit override.
+from app.db import make_engine
+
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", str(make_engine().url))
+
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
