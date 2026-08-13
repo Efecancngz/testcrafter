@@ -14,7 +14,7 @@ class PageStructure(BaseModel):
 
 
 class ScenarioStep(BaseModel):
-    action: str      # "click" | "fill" | "goto" | "expect_text" | "expect_url"
+    action: str      # "click" | "fill" | "goto" | "expect_text" | "expect_url" | "expect_visible"
     selector: str | None = None
     value: str | None = None
     expected: str | None = None
