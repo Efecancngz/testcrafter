@@ -81,7 +81,7 @@ FastAPI auto-generates OpenAPI/Swagger (`/docs`) for the "what"; `docs/api-spec.
 
 **Error handling:**
 - **AI provider errors** (rate limit, timeout, invalid JSON): retry with exponential backoff (max 3 attempts); on failure, `Run` status set to `failed` with reason shown to user. AI JSON output validated against a Pydantic schema — schema mismatch is treated as an error, never silently swallowed.
-- **Crawler errors** (site unreachable, timeout, bot protection): scan moves to `failed`, user sees a human-readable message, not a stack trace.
+- **Crawler errors** (site unreachable, timeout): scan moves to `failed`, user sees a human-readable message, not a stack trace. **Bot-verification challenge detected** (Cloudflare/reCAPTCHA/hCaptcha interstitial): scan moves to `blocked` instead, with `blocked_reason` set to the provider name — distinct from a genuine crawl failure since the site is reachable but is actively gatekeeping.
 - **Test runner failures** (scenario step can't find an element, etc.): this is a legitimate result — scenario marked `fail`, error captured with a screenshot. Not an application bug; it's the product doing its job.
 - **General principle:** user-facing errors are human-readable; technical detail (stack traces, raw provider responses) stays in backend logs only.
 
@@ -110,7 +110,8 @@ Scan
 ├── description
 ├── page_structure_json
 ├── ai_provider           # claude | gemini | deepseek | qwen
-├── status                # pending | analyzing | ready | failed
+├── status                # pending | analyzing | ready | failed | blocked
+├── blocked_reason        # string | null — set only when status is blocked; identifies the provider (cloudflare | recaptcha | hcaptcha)
 ├── created_at
 
 Scenario

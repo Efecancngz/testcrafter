@@ -9,13 +9,47 @@ _SELECTORS = {
     "form": "form",
 }
 
+_TITLE_SIGNATURES = {
+    "Just a moment...": "cloudflare",
+    "Attention Required! | Cloudflare": "cloudflare",
+}
+
+_DOM_SIGNATURES = [
+    ("#challenge-form, #challenge-running", "cloudflare"),
+    ("iframe[src*='challenges.cloudflare.com']", "cloudflare"),
+]
+
+
+class BotChallengeDetected(Exception):
+    def __init__(self, provider: str):
+        self.provider = provider
+        super().__init__(f"bot challenge detected: {provider}")
+
+
+def _detect_bot_challenge(page, response) -> str | None:
+    # cf-mitigated is Cloudflare's own header for pages it intercepted —
+    # checked first since it needs no DOM/title heuristics at all.
+    if response is not None and response.header_value("cf-mitigated"):
+        return "cloudflare"
+    title = page.title()
+    if title in _TITLE_SIGNATURES:
+        return _TITLE_SIGNATURES[title]
+    for selector, provider in _DOM_SIGNATURES:
+        if page.query_selector(selector) is not None:
+            return provider
+    return None
+
 
 def extract_page_structure(url: str) -> PageStructure:
     elements: list[PageElement] = []
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
-        page.goto(url)
+        response = page.goto(url)
+
+        provider = _detect_bot_challenge(page, response)
+        if provider is not None:
+            raise BotChallengeDetected(provider)
 
         for role, css in _SELECTORS.items():
             for i, handle in enumerate(page.query_selector_all(css)):

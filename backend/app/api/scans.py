@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.db import get_session
 from app.models import Project, Run, RunStep, Scan, Scenario, User
 from app.auth import get_current_user
-from app.crawler import extract_page_structure
+from app.crawler import extract_page_structure, BotChallengeDetected
 from app.ai.base import AIProvider
 from app.runner import run_scenario
 from app.schemas import GeneratedScenario, ScenarioStep
@@ -58,6 +58,7 @@ class ScanOut(BaseModel):
     id: int
     target_url: str
     status: str
+    blocked_reason: str | None = None
     scenarios: list[ScenarioOut]
 
 class RunStepOut(BaseModel):
@@ -95,6 +96,13 @@ def create_scan(project_id: int, payload: ScanCreate, user: User = Depends(get_c
 
     try:
         page_structure = extract_page_structure(payload.target_url)
+    except BotChallengeDetected as e:
+        logger.info("bot challenge detected for scan %s (%s): %s", scan.id, payload.target_url, e.provider)
+        scan.status = "blocked"
+        scan.blocked_reason = e.provider
+        session.commit()
+        session.refresh(scan)
+        return ScanOut(id=scan.id, target_url=scan.target_url, status=scan.status, blocked_reason=scan.blocked_reason, scenarios=[])
     except PlaywrightError:
         # Bad/unreachable target_url is external input, not a bug in our code —
         # record the scan as failed instead of a 500, per docs/api-spec.md.
@@ -131,7 +139,7 @@ def create_scan(project_id: int, payload: ScanCreate, user: User = Depends(get_c
 def get_scan(scan_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     scan = _get_owned_scan(scan_id, user, session)
     scenarios = session.query(Scenario).filter_by(scan_id=scan.id).all()
-    return ScanOut(id=scan.id, target_url=scan.target_url, status=scan.status, scenarios=scenarios)
+    return ScanOut(id=scan.id, target_url=scan.target_url, status=scan.status, blocked_reason=scan.blocked_reason, scenarios=scenarios)
 
 @router.post("/scans/{scan_id}/run", response_model=list[RunOut])
 def run_scan(scan_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)):

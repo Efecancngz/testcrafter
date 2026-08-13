@@ -30,6 +30,7 @@ class Scan(Base):
     page_structure_json: Mapped[str] = mapped_column(Text)
     ai_provider: Mapped[str] = mapped_column(String)
     status: Mapped[str] = mapped_column(String, default="pending")
+    blocked_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
 
 class Scenario(Base):

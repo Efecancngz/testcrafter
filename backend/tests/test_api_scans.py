@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import patch
 import pytest
 from playwright.sync_api import Error as PlaywrightError
+from app.crawler import BotChallengeDetected
 from app.api.scans import SCREENSHOTS_DIR
 from app.schemas import PageStructure, PageElement, GeneratedScenario, ScenarioStep
 from app.models import Scan
@@ -62,6 +63,39 @@ def test_create_scan_marks_failed_when_crawl_fails(authenticated_client):
     body = resp.json()
     assert body["status"] == "failed"
     assert body["scenarios"] == []
+
+def test_create_scan_marks_blocked_when_bot_challenge_detected(authenticated_client):
+    project = authenticated_client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
+
+    with patch("app.api.scans.extract_page_structure", side_effect=BotChallengeDetected("cloudflare")), \
+         patch("app.api.scans.get_ai_provider") as mock_get_provider:
+        resp = authenticated_client.post(f"/projects/{project['id']}/scans", json={
+            "target_url": "https://example.com",
+            "description": "Check submit button",
+        })
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["status"] == "blocked"
+    assert body["blocked_reason"] == "cloudflare"
+    assert body["scenarios"] == []
+    mock_get_provider.assert_not_called()
+
+
+def test_get_scan_includes_blocked_reason(authenticated_client):
+    project = authenticated_client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
+
+    with patch("app.api.scans.extract_page_structure", side_effect=BotChallengeDetected("recaptcha")):
+        scan = authenticated_client.post(f"/projects/{project['id']}/scans", json={
+            "target_url": "https://example.com",
+            "description": "x",
+        }).json()
+
+    resp = authenticated_client.get(f"/scans/{scan['id']}")
+
+    assert resp.status_code == 200
+    assert resp.json()["blocked_reason"] == "recaptcha"
+
 
 def test_create_scan_marks_failed_when_ai_provider_not_configured(authenticated_client):
     project = authenticated_client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
