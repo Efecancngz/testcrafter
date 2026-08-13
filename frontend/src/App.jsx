@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createProject, createScan, runScan } from "./api";
+import { createProject, createScan, runScan, BASE_URL } from "./api";
 
 export default function App() {
   const [url, setUrl] = useState("");
@@ -72,6 +72,11 @@ export default function App() {
                   {run.steps.map((step) => (
                     <li key={step.id}>
                       Step {step.step_index}: {step.status} {step.log_message ? `— ${step.log_message}` : ""}
+                      {step.screenshot_path && (
+                        <div>
+                          <img src={`${BASE_URL}${step.screenshot_path}`} alt="" style={{ maxWidth: 200 }} />
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>
