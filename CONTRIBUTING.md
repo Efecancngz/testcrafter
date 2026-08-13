@@ -9,6 +9,10 @@ cd frontend && npm install
 
 Or via Docker: `docker compose up --build`.
 
+`SECRET_KEY` must be set in `.env` for the backend to start (see `.env.example`) — it signs and verifies auth tokens.
+
+If you're pulling this change into an existing local checkout, delete your local `testcrafter.db` first: it added a non-nullable `password_hash` column to the existing `users` table, and there's no migration tooling yet to backfill it on an existing database.
+
 ## Running tests
 
 ```bash

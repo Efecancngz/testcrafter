@@ -17,12 +17,14 @@ FastAPI · SQLAlchemy · SQLite · Playwright · React (Vite) · Claude / Gemini
 ```bash
 git clone <repo-url>
 cd testcrafter
-cp .env.example .env   # AI_PROVIDER ayarla ve uygun API anahtarını ekle (ANTHROPIC_API_KEY veya GEMINI_API_KEY)
+cp .env.example .env   # AI_PROVIDER, uygun API anahtarını (ANTHROPIC_API_KEY veya GEMINI_API_KEY) ve SECRET_KEY ayarla
 docker compose up --build
 ```
 
 Backend: http://localhost:8000 (dokümantasyon `/docs`)
 Frontend: http://localhost:5173
+
+İlk kullanımda uygulama içinden bir hesap oluşturman gerekiyor — her proje/tarama kendi hesabına bağlı.
 
 ## Dokümantasyon
 

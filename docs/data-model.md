@@ -14,7 +14,8 @@ User 1──N Project 1──N Scan 1──N Scenario 1──N Run 1──N RunS
 | Column | Type | Notes |
 |---|---|---|
 | id | int, PK | |
-| email | string, unique | MVP seeds one demo user (`demo@testcrafter.local`) |
+| email | string, unique | |
+| password_hash | string | bcrypt hash, never logged or returned by any endpoint |
 | created_at | datetime | |
 
 ### projects
@@ -63,7 +64,7 @@ User 1──N Project 1──N Scan 1──N Scenario 1──N Run 1──N RunS
 | run_id | int, FK -> runs.id | |
 | step_index | int | |
 | status | string | `passed` \| `failed` |
-| screenshot_path | string, nullable | URL path (e.g. `/screenshots/{run_id}/{step_index}.png`) served via the FastAPI static mount at `/screenshots`; `None` only if the screenshot capture itself failed (action result is unaffected) |
+| screenshot_path | string, nullable | endpoint path (e.g. `/runs/{run_id}/screenshots/{step_index}`), not a public static URL — served by an authorizing endpoint that requires the caller to own the run; `None` only if the screenshot capture itself failed (action result is unaffected) |
 | log_message | text, nullable | one-line pass confirmation or failure reason from `app/runner.StepResult` |
 
 ## Why SQLite now, Postgres-ready later

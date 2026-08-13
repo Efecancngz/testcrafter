@@ -12,7 +12,7 @@
 
 **Motivation:** Portfolio piece for job applications. Long-running/continuously developed, not a one-off sprint.
 
-**MVP scope:** Runs locally via Docker Compose, no hosting for now. Data model and auth are architected to be multi-tenant-ready (single seeded "demo user" for MVP), so it can grow into a real SaaS later without a schema rewrite.
+**MVP scope:** Runs locally via Docker Compose, no hosting for now. Data model and auth are multi-tenant-ready by design (real per-user accounts via JWT auth, see [Auth](#auth) below), so it can grow into a real SaaS later without a schema rewrite.
 
 ## 2. Architecture
 
@@ -37,6 +37,12 @@ testcrafter/
 6. Dashboard shows results per scenario (pass/fail, screenshots, AI-generated scenario text)
 
 **AI provider abstraction:** `AIProvider` interface — `generate_scenarios(page_structure, description) -> list[Scenario]`. Each provider (Claude, Gemini, DeepSeek, Qwen) is a separate adapter implementing this interface. Active provider selected via `.env`. Adding a new provider means adding a new adapter file, nothing else changes.
+
+## Auth
+
+JWT-based, stateless: `POST /auth/register` and `POST /auth/login` return a signed access token; every subsequent request authenticates via `Authorization: Bearer <token>`, verified per-request in `app/auth.get_current_user` (`Depends`), with no server-side session store or token registry. Passwords are hashed with `bcrypt` (`app/auth.hash_password` / `verify_password`) — the plaintext password never persists, and `password_hash` is never returned by any endpoint. Tokens are signed with `SECRET_KEY` (required env var; the app refuses to start without it) and expire after 24 hours.
+
+JWT was chosen over server-side sessions because it matches the existing architecture: the backend is a stateless FastAPI API consumed by an SPA, so there's no natural place to keep session state without adding a session store (Redis, DB-backed sessions) purely for auth. A signed, self-contained token needs no extra infrastructure and keeps every request independently verifiable — consistent with the project's "no hosting yet but SaaS-ready" posture (see MVP scope above): it costs nothing extra locally and scales cleanly to multiple backend instances later without sticky sessions or a shared session store.
 
 ## 3. Documentation Structure
 
@@ -80,7 +86,7 @@ User
 ├── id (PK)
 ├── email
 ├── created_at
-(MVP seeds a single "demo user"; table is multi-tenant-ready)
+(real per-user accounts via `POST /auth/register`; table was always multi-tenant-ready and is now exercised as such — see Auth above)
 
 Project
 ├── id (PK)
