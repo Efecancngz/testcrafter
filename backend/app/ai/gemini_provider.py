@@ -24,8 +24,11 @@ class GeminiProvider(AIProvider):
                 f"{SYSTEM_PROMPT}\n\n"
                 f"Page structure: {page_structure.model_dump_json()}\nDescription: {description}"
             ),
+            config={"response_mime_type": "application/json"},
         )
         raw_text = response.text
+        if raw_text is None:
+            raise ValueError("invalid AI response: empty response")
         try:
             parsed = json.loads(raw_text)
             return [GeneratedScenario.model_validate(item) for item in parsed]
