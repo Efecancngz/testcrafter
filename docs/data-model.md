@@ -2,6 +2,8 @@
 
 ER diagram and column reference for the SQLAlchemy models in `backend/app/models.py`.
 
+Schema history now lives in `backend/alembic/versions/`, managed via Alembic — not `create_all` (see [Database migrations](architecture.md#database-migrations) in the architecture doc).
+
 ## Entity-Relationship Diagram
 
 ```

@@ -4,6 +4,7 @@
 
 ```bash
 cd backend && pip install -e ".[dev]" && playwright install chromium
+cd backend && alembic upgrade head   # run before first start, and again after pulling any migration-adding change
 cd frontend && npm install
 ```
 
@@ -11,7 +12,7 @@ Or via Docker: `docker compose up --build`.
 
 `SECRET_KEY` must be set in `.env` for the backend to start (see `.env.example`) — it signs and verifies auth tokens.
 
-If you're pulling this change into an existing local checkout, delete your local `testcrafter.db` first: it added a non-nullable `password_hash` column to the existing `users` table, and there's no migration tooling yet to backfill it on an existing database.
+If you're pulling this change into an existing local checkout, delete your local `testcrafter.db` one last time — this change introduces Alembic migrations, and a pre-Alembic database can't be reconciled with the migration history. After this, `docker compose up` (or `alembic upgrade head` for a manual setup) manages schema changes automatically; no more manual deletions going forward.
 
 ## Running tests
 

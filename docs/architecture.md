@@ -44,6 +44,14 @@ JWT-based, stateless: `POST /auth/register` and `POST /auth/login` return a sign
 
 JWT was chosen over server-side sessions because it matches the existing architecture: the backend is a stateless FastAPI API consumed by an SPA, so there's no natural place to keep session state without adding a session store (Redis, DB-backed sessions) purely for auth. A signed, self-contained token needs no extra infrastructure and keeps every request independently verifiable — consistent with the project's "no hosting yet but SaaS-ready" posture (see MVP scope above): it costs nothing extra locally and scales cleanly to multiple backend instances later without sticky sessions or a shared session store.
 
+## Database migrations
+
+Schema is managed by Alembic (`backend/alembic/`), not `Base.metadata.create_all()` — every schema change is a committed migration under `backend/alembic/versions/`, applied via `alembic upgrade head` (automatic on `docker compose up`, see the backend `Dockerfile`).
+
+**Deliberate exception:** the test suite's `db_session` fixture (`backend/tests/conftest.py`) still uses `Base.metadata.create_all()` against an in-memory SQLite database. This isn't an inconsistency — tests need a fast, fully-isolated schema per run, and `create_all` reflects the *models* directly, which is exactly what a test needs. Production and dev databases are the only ones migrations apply to.
+
+**Adding a schema change:** modify `app/models.py`, then run `cd backend && alembic revision --autogenerate -m "<description>"`, review the generated file (autogenerate isn't perfect — check it before committing), and commit it. Migration files are never hand-edited after being committed; a mistake gets fixed with a new migration, not an edit to an old one.
+
 ## 3. Documentation Structure
 
 ```
