@@ -38,7 +38,8 @@ User 1──N Project 1──N Scan 1──N Scenario 1──N Run 1──N RunS
 | description | text | user-provided context for scenario generation |
 | page_structure_json | text | JSON dump of the crawler's `PageStructure` |
 | ai_provider | string | e.g. `"claude"` |
-| status | string | `pending` \| `analyzing` \| `ready` \| `failed` |
+| status | string | `pending` \| `analyzing` \| `ready` \| `failed` \| `blocked` |
+| blocked_reason | string \| null | Set only when status is `blocked`; identifies which provider's challenge was detected (`cloudflare` \| `recaptcha` \| `hcaptcha`) |
 | created_at | datetime | |
 
 ### scenarios
