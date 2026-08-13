@@ -1,30 +1,31 @@
 # Handoff — testcrafter
-Son güncelleme: 2026-08-13 (auth sistemi final fix pass sonrası), güncelleyen: Claude Opus 5
+Son güncelleme: 2026-08-13 (runner action vocabulary final fix pass sonrası), güncelleyen: Claude Opus 5
 
 ## Şu an ne yapılıyor
-Auth sistemi (branch `feat/auth-system`) tamamlandı: JWT tabanlı email+şifre girişi, tüm endpoint'ler (`projects`, `scans`, screenshot proxy) kullanıcıya bağlandı, sahiplik kontrolleri (404-not-403) eklendi, frontend'e login/register UI eklendi. Bu, üç planlanmış özelliğin (Gemini adaptörü → screenshot capture → auth sistemi) sonuncusuydu. Planın 5 task'ı da ayrı ayrı review'den temiz geçti — Task 4 (screenshot proxy) özellikle sıkı bir güvenlik incelemesinden geçti (ownership chain, path traversal, auth bypass kontrolleri).
+Runner action vocabulary (branch `feat/runner-action-vocabulary`) tamamlandı: AI sağlayıcılarının ürettiği desteklenmeyen action isimleri (`navigate`, `assertVisibility` gibi) artık runner tarafından tanınıyor. `backend/app/ai/prompts.py`'de paylaşılan `SYSTEM_PROMPT` desteklenen action'ları açıkça listeliyor; `backend/app/runner.py`'de synonym normalization eklendi ve yeni bir `expect_visible` action'ı tanıtıldı. Bu, güncel oturumda çalışılan dört özelliğin sonuncusuydu (Gemini adaptörü ✅ → screenshot capture ✅ → auth sistemi ✅ → runner action vocabulary ✅).
 
-Whole-branch final review 2 Critical bulgu buldu (bu proje için üçüncü kez art arda — sadece final review'de görülen entegrasyon hataları): `docker-compose.yml`'de `SECRET_KEY` container'a geçmiyordu (Docker üzerinden her login 500 dönüyordu), ve `test_api_projects.py`'deki gerçek-deployment testi sabit bir email ile gerçek DB'ye kullanıcı yazıyordu — ikinci çalıştırmada kalıcı olarak fail oluyordu. Ayrıca 4 Important (SECRET_KEY lazy check yerine startup-time check, 401'de login formuna dönmeme, register'ın token başarısız olursa orphan user bırakması, 72 byte üstü şifrenin 500 vermesi) ve 3 Minor bulgu düzeltildi. Tek fix dalgasıyla hepsi çözüldü, re-review temiz.
+Whole-branch final review, bu fix dalgasıyla giderilen 1 Critical ve 3 Important bulgu buldu:
+- **Critical:** `expect_visible`, Playwright'ın auto-wait yapmayan `page.is_visible()` metodunu kullanıyordu; dinamik sayfalarda (SPA/React — bu ürünün asıl hedefi) bir önceki adımdan hemen sonra render olan elementler yanlışlıkla "not visible" olarak fail ediliyordu. `wait_for_selector(state="visible", timeout=5000)` ile değiştirildi.
+- **Important:** `_normalize_action`, synonym tablosunda bulunamayan action'lar için orijinal (küçük/büyük harf karışık) string'i döndürüyordu; bu yüzden `"Click"` gibi Title-cased bir canonical isim tanınmıyordu. Artık lowercase edilmiş hali fallback olarak döndürülüyor.
+- **Important:** `"press": "click"` ve `"open": "goto"` synonym eşlemeleri, semantik olarak farklı bir action'ı (ör. Enter tuşuna basma) sessizce yanlış bir action'a (click) dönüştürüp sahte bir "passed" sonucu üretebiliyordu — bir QA aracında sahte yeşil, sahte kırmızıdan daha kötü. İkisi de tablodan kaldırıldı.
+- **Important:** Synonym tablosunda asimetri vardı (`assertVisibility` var ama daha idiomatik `assertVisible`/`checkVisible` yoktu, `check_text` var ama `check_url` yoktu). Dört eksik synonym eklendi.
+
+Tüm backend test suite'i (49 test) geçti.
 
 ## Sıradaki somut adım
-`feat/auth-system` branch'i için finishing-a-development-branch akışını tamamla (test doğrulaması yapıldı, 44/44 geçti — idempotency de doğrulandı, suite iki kez üst üste çalıştırıldı). PR açma/merge kararı kullanıcıdan bekleniyor.
-
-**Bu, testcrafter için planlanmış üç özelliğin sonuncusuydu** (Gemini adaptörü ✅ → screenshot capture ✅ → auth sistemi ✅). Sıradaki iş henüz belirlenmedi — kullanıcıyla görüşülmeli.
+Sıradaki iş henüz belirlenmedi — kullanıcıyla görüşülmeli.
 
 ## Bilinmesi gerekenler
-- Plan: `docs/superpowers/plans/2026-08-13-auth-system.md`, spec: `docs/superpowers/specs/2026-08-13-auth-system-design.md`
-- Bilinçli olarak ertelenen bulgular: stale-schema startup check (migration yok, sadece `CONTRIBUTING.md`'de "local db'yi sil" notu var), Swagger `/docs`'taki "Authorize" butonunun OAuth2 form format'ıyla uyumsuz olması (kozmetik, dev-tooling), tek bir uçtan-uca çok-kullanıcılı entegrasyon testi (mevcut per-endpoint testler zaten sahiplik mantığını kapsıyor)
-- `SECRET_KEY` artık gerçek anlamda startup-time kontrolü — `app.auth` import edildiği an (yani app başlarken) `RuntimeError` fırlatıyor, sadece token issuance sırasında değil
-- AI provider'ların ürettiği scenario action'ları (`navigate`, `assertVisibility` gibi) runner'ın desteklediği vocabulary ile hâlâ tam örtüşmüyor — bilinen, önceden var olan, auth'tan bağımsız bir sorun, hâlâ kendi ticket'ını hak ediyor
+- Plan/spec: `.superpowers/sdd/2026-08-13-runner-action-vocabulary/` altında
+- `test_run_scenario_expect_visible_fails_for_hidden_element` artık ~5 saniye sürüyor (önceden ~0s) çünkü `wait_for_selector` timeout'u dolana kadar bekliyor — bu beklenen, kabul edilebilir bir trade-off, hata değil
+- Synonym tablosu artık şunları İÇERMİYOR: `"press"` (click ile karıştırılabilir, gerçek bir Playwright `press()` semantiği var), `"open"` (genelde dropdown/modal açma anlamına gelir, literal navigasyon değil)
 
 ## İlgili dosyalar
-- `backend/app/auth.py` — hash/JWT/`get_current_user`, artık import-time `SECRET_KEY` kontrolü
-- `backend/app/api/auth.py` — register/login, flush-then-commit-after-token sırası
-- `backend/app/api/projects.py` / `scans.py` — `_demo_user` kaldırıldı, tüm endpoint'ler `get_current_user` + sahiplik kontrolü kullanıyor
-- `docker-compose.yml` — `SECRET_KEY` environment'a eklendi
-- `frontend/src/api.js` / `App.jsx` — auth header'ları, `setUnauthorizedHandler` ile 401'de login formuna dönüş, screenshot blob fetch
+- `backend/app/runner.py` — `_ACTION_SYNONYMS`, `_normalize_action`, `expect_visible` action implementasyonu
+- `backend/app/ai/prompts.py` — paylaşılan `SYSTEM_PROMPT`, desteklenen action listesi
+- `backend/tests/test_runner.py` — synonym normalization ve `expect_visible` testleri
 
 ## Son 3 commit
-- b2221a7 fix: address final auth-system integration review findings
-- 0122422 feat: add frontend auth UI and authenticated screenshot fetch, update docs
-- 8964c06 feat: replace screenshot static mount with an authorizing proxy endpoint
+- 930d31b fix: address final review findings in runner action vocabulary
+- c5c5815 docs: document supported scenario actions and prompt sharing
+- f8ebf9a feat: normalize action synonyms and add expect_visible to the runner
