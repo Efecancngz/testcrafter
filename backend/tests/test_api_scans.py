@@ -1,7 +1,9 @@
+import shutil
 from pathlib import Path
 from unittest.mock import patch
 import pytest
 from playwright.sync_api import Error as PlaywrightError
+from app.api.scans import SCREENSHOTS_DIR
 from app.schemas import PageStructure, PageElement, GeneratedScenario, ScenarioStep
 from app.models import Scan
 
@@ -116,6 +118,55 @@ def test_run_scan_executes_scenarios_and_persists_results(client, monkeypatch, t
     run_id = runs[0]["id"]
     for index, step in enumerate(runs[0]["steps"]):
         assert step["screenshot_path"] == f"/screenshots/{run_id}/{index}.png"
+
+def test_screenshot_path_is_served_by_static_mount(client):
+    # Unlike test_run_scan_executes_scenarios_and_persists_results, this test does NOT
+    # monkeypatch app.api.scans.SCREENSHOTS_DIR — the StaticFiles mount in app.main
+    # captures SCREENSHOTS_DIR's value at import time, so only a run that writes into
+    # the real directory can prove the mount actually serves files. This exercises the
+    # real, currently-shipped mount end to end: run a scenario, then GET the
+    # screenshot_path the API returned and confirm it serves the actual PNG bytes.
+    project = client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
+
+    fake_structure = PageStructure(url=FIXTURE_URL, elements=[PageElement(tag="button", role="button", selector="#submit", text="Log in")])
+    fake_scenarios = [
+        GeneratedScenario(
+            title="Submit button has correct label",
+            steps=[
+                ScenarioStep(action="goto", value=FIXTURE_URL),
+                ScenarioStep(action="expect_text", selector="#submit", expected="Log in"),
+            ],
+        )
+    ]
+
+    with patch("app.api.scans.extract_page_structure", return_value=fake_structure), \
+         patch("app.api.scans.get_ai_provider") as mock_get_provider:
+        mock_get_provider.return_value.generate_scenarios.return_value = fake_scenarios
+        scan = client.post(f"/projects/{project['id']}/scans", json={
+            "target_url": FIXTURE_URL,
+            "description": "Check submit button label",
+        }).json()
+
+    run_id = None
+    try:
+        resp = client.post(f"/scans/{scan['id']}/run")
+        assert resp.status_code == 200
+        runs = resp.json()
+        run_id = runs[0]["id"]
+        screenshot_path = runs[0]["steps"][0]["screenshot_path"]
+        assert screenshot_path is not None
+
+        # Confirm the file genuinely landed under the real SCREENSHOTS_DIR the mount serves.
+        on_disk_path = SCREENSHOTS_DIR / screenshot_path.removeprefix("/screenshots/")
+        assert on_disk_path.is_file()
+        expected_bytes = on_disk_path.read_bytes()
+
+        get_resp = client.get(screenshot_path)
+        assert get_resp.status_code == 200
+        assert get_resp.content == expected_bytes
+    finally:
+        if run_id is not None:
+            shutil.rmtree(SCREENSHOTS_DIR / str(run_id), ignore_errors=True)
 
 def test_run_scan_not_found_returns_404(client):
     resp = client.post("/scans/999/run")

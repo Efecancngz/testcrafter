@@ -60,7 +60,7 @@ class RunOut(BaseModel):
     scenario_id: int
     status: str
     started_at: datetime
-    finished_at: datetime
+    finished_at: datetime | None = None
     steps: list[RunStepOut]
     model_config = {"from_attributes": True}
 
@@ -131,16 +131,17 @@ def run_scan(scan_id: int, session: Session = Depends(get_session)):
         steps = [ScenarioStep(**s) for s in json.loads(scenario.steps_json)]
         generated = GeneratedScenario(title=scenario.title, steps=steps)
 
-        run = Run(scenario_id=scenario.id, status="pending", started_at=datetime.now(timezone.utc), finished_at=datetime.now(timezone.utc))
+        run = Run(scenario_id=scenario.id, status="pending", started_at=datetime.now(timezone.utc), finished_at=None)
         session.add(run)
         session.flush()
+        session.commit()
 
         results = run_scenario(generated, base_url="", screenshot_dir=SCREENSHOTS_DIR / str(run.id))
         run.finished_at = datetime.now(timezone.utc)
         run.status = "passed" if all(r.status == "passed" for r in results) else "failed"
 
         for index, result in enumerate(results):
-            screenshot_path = f"/screenshots/{run.id}/{index}.png" if result.screenshot_path else None
+            screenshot_path = f"/screenshots/{run.id}/{Path(result.screenshot_path).name}" if result.screenshot_path else None
             session.add(RunStep(run_id=run.id, step_index=index, status=result.status, log_message=result.log_message, screenshot_path=screenshot_path))
         runs.append(run)
 

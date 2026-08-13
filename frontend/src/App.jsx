@@ -74,7 +74,7 @@ export default function App() {
                       Step {step.step_index}: {step.status} {step.log_message ? `— ${step.log_message}` : ""}
                       {step.screenshot_path && (
                         <div>
-                          <img src={`${BASE_URL}${step.screenshot_path}`} alt="" style={{ maxWidth: 200 }} />
+                          <img src={`${BASE_URL}${step.screenshot_path}`} alt={`Step ${step.step_index} screenshot`} loading="lazy" style={{ maxWidth: 200 }} />
                         </div>
                       )}
                     </li>
