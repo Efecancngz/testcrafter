@@ -2,7 +2,7 @@
 from app.models import User, Project, Scan, Scenario, Run, RunStep
 
 def test_can_create_full_chain(db_session):
-    user = User(email="demo@testcrafter.local")
+    user = User(email="demo@testcrafter.local", password_hash="not-a-real-hash")
     db_session.add(user)
     db_session.flush()
 

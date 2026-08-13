@@ -19,7 +19,7 @@ class ProjectOut(BaseModel):
 def _demo_user(session: Session) -> User:
     user = session.query(User).filter_by(email="demo@testcrafter.local").first()
     if user is None:
-        user = User(email="demo@testcrafter.local")
+        user = User(email="demo@testcrafter.local", password_hash="not-a-real-hash")
         session.add(user)
         session.flush()
     return user
