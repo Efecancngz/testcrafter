@@ -6,6 +6,8 @@ AI-powered test scenario generator + Playwright runner. User submits a URL + sho
 
 Full design rationale: `docs/architecture.md`. Read it before making architectural changes.
 
+Current work-in-progress status / AI handoff: `HANDOFF.md` — read it first when resuming work.
+
 ## Purpose
 
 Portfolio project spanning backend/full-stack, AI-integration, and QA-automation — built to be demoable in job interviews for all three. Long-running, continuously developed (not a fixed-scope sprint).
