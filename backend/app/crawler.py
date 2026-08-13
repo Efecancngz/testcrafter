@@ -15,9 +15,8 @@ _TITLE_SIGNATURES = {
 }
 
 _DOM_SIGNATURES = [
-    ("iframe[src*='recaptcha']", "recaptcha"),
-    ("iframe[src*='hcaptcha']", "hcaptcha"),
-    ("[class*='cf-turnstile'], iframe[src*='challenges.cloudflare.com']", "cloudflare"),
+    ("#challenge-form, #challenge-running", "cloudflare"),
+    ("iframe[src*='challenges.cloudflare.com']", "cloudflare"),
 ]
 
 
