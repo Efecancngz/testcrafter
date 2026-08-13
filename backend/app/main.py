@@ -5,6 +5,7 @@ from app.db import Base, engine
 from app.api.projects import router as projects_router
 from app.api.scans import router as scans_router
 from app.api.scans import SCREENSHOTS_DIR
+from app.api.auth import router as auth_router
 
 Base.metadata.create_all(engine)
 
@@ -21,3 +22,4 @@ app.mount("/screenshots", StaticFiles(directory=SCREENSHOTS_DIR), name="screensh
 
 app.include_router(projects_router)
 app.include_router(scans_router)
+app.include_router(auth_router)
