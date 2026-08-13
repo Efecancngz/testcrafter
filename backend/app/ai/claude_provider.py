@@ -3,13 +3,8 @@ import json
 from pydantic import ValidationError
 
 from app.ai.base import AIProvider
+from app.ai.prompts import SYSTEM_PROMPT
 from app.schemas import PageStructure, GeneratedScenario
-
-SYSTEM_PROMPT = (
-    "You are a QA engineer. Given a page structure and a description, output a JSON array "
-    "of test scenarios. Each scenario has a 'title' and 'steps' (action, selector, value, expected). "
-    "Output ONLY the JSON array, no prose."
-)
 
 
 class ClaudeProvider(AIProvider):
