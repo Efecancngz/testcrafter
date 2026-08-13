@@ -1,27 +1,26 @@
 # Handoff — testcrafter
-Son güncelleme: 2026-08-13 (final fix pass sonrası), güncelleyen: Claude Opus 5
+Son güncelleme: 2026-08-13 (screenshot capture final fix pass sonrası), güncelleyen: Claude Opus 5
 
 ## Şu an ne yapılıyor
-Gemini adaptörü + `AI_PROVIDER` env var seçimi (branch `feat/gemini-adapter`) tamamlandı. Planın 3 task'ı da (GeminiProvider, provider seçim mekanizması, dokümantasyon) implement edildi ve tek tek review'den temiz geçti. Whole-branch final review'de iki gerçek bulgu çıktı: `docker-compose.yml`'de `AI_PROVIDER`/`GEMINI_API_KEY` container'a geçirilmiyordu, ve `gemini_provider.py` JSON yanıtı zorlamıyordu + `response.text is None` durumunu ele almıyordu. Bu fix dalgası ikisini de düzeltti, ayrıca birkaç minor bulguyu (stale HANDOFF, kullanılmayan import, eksik `Scan.ai_provider` test coverage) temizledi.
+Gemini adaptörü (PR #2) merge edildi. Screenshot capture (branch `feat/screenshot-capture`) tamamlandı: Playwright her adımda screenshot alıyor, `backend/data/screenshots/{run_id}/{step_index}.png` altına yazıyor, FastAPI `/screenshots` static mount ile serve ediyor, frontend gösteriyor. Planın 3 task'ı da ayrı ayrı review'den temiz geçti. Whole-branch final review'de bir önemli bulgu çıktı: `run_scan`'deki reorder (Run satırını flush edip id almak) SQLite yazma kilidini tüm tarayıcı çalışması boyunca açık tutuyordu ve crash durumunda `run_id` tekrar kullanılıp eski screenshot'larla çakışabiliyordu. Fix: Run satırı flush sonrası hemen commit ediliyor. Ayrıca static-serving'i uçtan uca test eden bir test eklendi (öncekiler sadece string format kontrol ediyordu, gerçek mount'u hiç test etmiyordu).
 
 ## Sıradaki somut adım
-Final review'in bu fix dalgasına dönük scoped re-review'ini tamamla; temizse `feat/gemini-adapter` branch'ini PR ile main'e merge et. Merge sonrası plandaki kalan özellikler (screenshot capture, auth sistemi) sırada — henüz brainstorm edilmedi.
+`feat/screenshot-capture` branch'i için finishing-a-development-branch akışını tamamla (test doğrulaması yapıldı, 23/23 geçti; PR açma/merge kararı kullanıcıdan bekleniyor). Sonrasında plandaki son özellik: **auth sistemi** — henüz brainstorm edilmedi.
+
+**Önemli:** Final review, screenshot serving'in şu an auth'suz ve tahmin edilebilir ID'lerle (`/screenshots/{run_id}/{index}.png`) çalıştığını, bunun auth sistemi tasarımına dahil edilmesi gerektiğini not etti — auth brainstorming'inde bu nokta gündeme getirilmeli (run ownership kontrolü veya tahmin edilemez path).
 
 ## Bilinmesi gerekenler
-- Plan: `docs/superpowers/plans/2026-08-13-gemini-adapter.md`, spec: `docs/superpowers/specs/2026-08-13-gemini-adapter-design.md`
-- SDD ledger: `.superpowers/sdd/2026-08-13-gemini-adapter/progress.md` (git-ignored, sadece bu makinede); final fix raporu aynı klasörde `final-fix-report.md`
-- `google-genai` bağımlılığı kurulu ve `app/ai/gemini_provider.py` + `app/api/scans.py`'de kullanılıyor
-- `CLAUDE.md`'ye Gemini adaptörüne pointer eklendi (docs commit'inde)
-- Bilinçli olarak ertelenen bulgular: SYSTEM_PROMPT'un claude/gemini adaptörleri arasında duplike olması (sadece 2 provider varken erken optimizasyon), `google-genai` versiyon pin'inin gevşek olması (repo stiliyle tutarlı), `scans.py`'de `AI_PROVIDER`'ın iki kez okunması (önemsiz)
+- Plan: `docs/superpowers/plans/2026-08-13-screenshot-capture.md`, spec: `docs/superpowers/specs/2026-08-13-screenshot-capture-design.md`
+- Bilinçli olarak ertelenen bulgular: screenshot retention/cleanup politikası yok (MVP kapsamı dışı), AI provider'ların ürettiği scenario action'ları runner'ın desteklediği vocabulary ile tam örtüşmüyor (ayrı, önceden var olan bir sorun — screenshot feature'ı etkilemiyor ama ilk gerçek kullanıcı izlenimi "kırmızı adımlar + doğru screenshot'lar" oluyor, ayrı bir ticket değeri var)
+- Gemini adaptörü PR #2 merge edildi, `main`'de; branch silindi
 
 ## İlgili dosyalar
-- `backend/app/ai/gemini_provider.py` — JSON response_mime_type zorlandı, `response.text is None` guard'ı eklendi
-- `docker-compose.yml` — `AI_PROVIDER` ve `GEMINI_API_KEY` environment listesine eklendi
-- `backend/app/api/scans.py` — `get_ai_provider()` ve `Scan.ai_provider` persist mantığı (değişmedi, bu dalgada sadece test coverage eklendi)
-- `backend/tests/test_api_scans.py` — kullanılmayan `import os` kaldırıldı, `test_create_scan_persists_ai_provider` eklendi
-- `backend/tests/test_ai_gemini_provider.py` — mevcut fake'ler yeni `config=` kwarg'ını sorunsuz kabul ediyor
+- `backend/app/runner.py` — `_finish()` helper, her adımda screenshot capture, hata izolasyonu
+- `backend/app/api/scans.py` — `SCREENSHOTS_DIR`, `run_scan` reorder + erken commit, `RunStepOut.screenshot_path`
+- `backend/app/main.py` — `/screenshots` static mount
+- `frontend/src/App.jsx` — screenshot `<img>` render, `alt`/`loading="lazy"`
 
 ## Son 3 commit
-- 6cd2e26 fix: address final whole-branch review findings for gemini adapter
-- 1c38e53 docs: document Gemini adapter and AI_PROVIDER selection
-- 95f8dec feat: select AI provider via AI_PROVIDER env var
+- ac21d66 fix: commit Run row before browser launch, serve screenshots end-to-end in tests
+- 07ea855 feat: display scenario screenshots in the frontend, update docs
+- 4665aeb feat: persist and serve screenshot paths for scenario runs
