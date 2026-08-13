@@ -1,5 +1,7 @@
+import os
 from pathlib import Path
 from unittest.mock import patch
+import pytest
 from playwright.sync_api import Error as PlaywrightError
 from app.schemas import PageStructure, PageElement, GeneratedScenario, ScenarioStep
 
@@ -93,3 +95,27 @@ def test_run_scan_executes_scenarios_and_persists_results(client):
 def test_run_scan_not_found_returns_404(client):
     resp = client.post("/scans/999/run")
     assert resp.status_code == 404
+
+def test_get_ai_provider_defaults_to_claude(monkeypatch):
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+    from app.api.scans import get_ai_provider
+    from app.ai.claude_provider import ClaudeProvider
+    with patch("anthropic.Anthropic"):
+        provider = get_ai_provider()
+    assert isinstance(provider, ClaudeProvider)
+
+
+def test_get_ai_provider_selects_gemini(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "gemini")
+    from app.api.scans import get_ai_provider
+    from app.ai.gemini_provider import GeminiProvider
+    with patch("google.genai.Client"):
+        provider = get_ai_provider()
+    assert isinstance(provider, GeminiProvider)
+
+
+def test_get_ai_provider_rejects_unknown_value(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "not-a-real-provider")
+    from app.api.scans import get_ai_provider
+    with pytest.raises(ValueError, match="unknown AI_PROVIDER"):
+        get_ai_provider()

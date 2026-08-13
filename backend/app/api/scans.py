@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from playwright.sync_api import Error as PlaywrightError
@@ -16,9 +17,16 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 def get_ai_provider() -> AIProvider:
-    from app.ai.claude_provider import ClaudeProvider
-    import anthropic
-    return ClaudeProvider(client=anthropic.Anthropic())
+    provider_name = os.getenv("AI_PROVIDER", "claude")
+    if provider_name == "claude":
+        from app.ai.claude_provider import ClaudeProvider
+        import anthropic
+        return ClaudeProvider(client=anthropic.Anthropic())
+    if provider_name == "gemini":
+        from app.ai.gemini_provider import GeminiProvider
+        from google import genai
+        return GeminiProvider(client=genai.Client())
+    raise ValueError(f"unknown AI_PROVIDER: {provider_name}")
 
 class ScanCreate(BaseModel):
     target_url: str
@@ -59,7 +67,7 @@ def create_scan(project_id: int, payload: ScanCreate, session: Session = Depends
         target_url=payload.target_url,
         description=payload.description,
         page_structure_json="",
-        ai_provider="claude",
+        ai_provider=os.getenv("AI_PROVIDER", "claude"),
         status="analyzing",
     )
     session.add(scan)
