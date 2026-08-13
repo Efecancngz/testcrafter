@@ -9,9 +9,19 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+let onUnauthorized = () => {};
+export function setUnauthorizedHandler(handler) {
+  onUnauthorized = handler;
+}
+
+function handleUnauthorized() {
+  localStorage.removeItem("token");
+  onUnauthorized();
+}
+
 async function handleResponse(res) {
   if (res.status === 401) {
-    localStorage.removeItem("token");
+    handleUnauthorized();
   }
   if (!res.ok) {
     const body = await res.json().catch(() => null);
@@ -78,6 +88,9 @@ export async function runScan(scanId) {
 
 export async function fetchScreenshotUrl(path) {
   const res = await fetch(`${BASE_URL}${path}`, { headers: { ...authHeaders() } });
+  if (res.status === 401) {
+    handleUnauthorized();
+  }
   if (!res.ok) {
     throw new Error(`Failed to load screenshot (status ${res.status})`);
   }

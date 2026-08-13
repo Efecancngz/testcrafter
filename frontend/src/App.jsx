@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { createProject, createScan, runScan, register, login, logout, isAuthenticated, fetchScreenshotUrl } from "./api";
+import { createProject, createScan, runScan, register, login, logout, isAuthenticated, fetchScreenshotUrl, setUnauthorizedHandler } from "./api";
 
 function Screenshot({ path, stepIndex }) {
   const [src, setSrc] = useState(null);
@@ -8,7 +8,10 @@ function Screenshot({ path, stepIndex }) {
     let objectUrl;
     let cancelled = false;
     fetchScreenshotUrl(path).then((url) => {
-      if (cancelled) return;
+      if (cancelled) {
+        URL.revokeObjectURL(url);
+        return;
+      }
       objectUrl = url;
       setSrc(url);
     }).catch(() => {});
@@ -72,6 +75,10 @@ export default function App() {
   const [runs, setRuns] = useState(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => setAuthenticated(false));
+  }, []);
 
   if (!authenticated) {
     return <AuthForm onAuthenticated={() => setAuthenticated(true)} />;

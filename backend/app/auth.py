@@ -21,6 +21,11 @@ def _secret_key() -> str:
     return key
 
 
+# Fail fast at import time (i.e. at app startup, since routers import this module)
+# rather than lazily on first token issuance/verification.
+_secret_key()
+
+
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 

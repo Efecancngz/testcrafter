@@ -1,3 +1,13 @@
+import os
+
+# app.auth now checks SECRET_KEY at import time (module-level call to
+# _secret_key()), which happens as soon as app.main is imported below (via
+# router imports) — before pytest has run any autouse fixture. Set a real
+# value here, at conftest module-import time, so collection and app startup
+# both succeed. The autouse fixture below still re-asserts it per-test for
+# explicit clarity/documentation and to guard against anything unsetting it.
+os.environ["SECRET_KEY"] = "test-secret-key-do-not-use-in-production"
+
 import pytest
 from sqlalchemy.orm import sessionmaker
 from app.db import Base, make_engine

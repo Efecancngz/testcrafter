@@ -1,3 +1,6 @@
+import uuid
+
+
 def test_list_projects_without_session_override_does_not_500():
     # Regression test: the `client` fixture overrides get_session with a plain
     # generator, which masked get_session being wrongly decorated with
@@ -8,7 +11,8 @@ def test_list_projects_without_session_override_does_not_500():
     from app.main import app
 
     with TestClient(app) as real_client:
-        token = real_client.post("/auth/register", json={"email": "real-deployment-check@example.com", "password": "s3cret!"}).json()["access_token"]
+        email = f"real-deployment-check-{uuid.uuid4()}@example.com"
+        token = real_client.post("/auth/register", json={"email": email, "password": "s3cret!"}).json()["access_token"]
         resp = real_client.get("/projects", headers={"Authorization": f"Bearer {token}"})
 
     assert resp.status_code == 200
