@@ -10,14 +10,14 @@ Backend API tasarımı, AI entegrasyonu ve QA test otomasyonunu tek bir projede 
 
 ## Stack
 
-FastAPI · SQLAlchemy · SQLite · Playwright · React (Vite) · Claude API (değiştirilebilir AI sağlayıcı katmanı)
+FastAPI · SQLAlchemy · SQLite · Playwright · React (Vite) · Claude / Gemini (değiştirilebilir AI sağlayıcı katmanı)
 
 ## Hızlı başlangıç
 
 ```bash
 git clone <repo-url>
 cd testcrafter
-cp .env.example .env   # ANTHROPIC_API_KEY ekle
+cp .env.example .env   # AI_PROVIDER ayarla ve uygun API anahtarını ekle (ANTHROPIC_API_KEY veya GEMINI_API_KEY)
 docker compose up --build
 ```
 

@@ -10,14 +10,14 @@ A single project demonstrating backend API design, AI integration, and QA test a
 
 ## Stack
 
-FastAPI · SQLAlchemy · SQLite · Playwright · React (Vite) · Claude API (pluggable AI provider layer)
+FastAPI · SQLAlchemy · SQLite · Playwright · React (Vite) · Claude / Gemini (pluggable AI provider layer)
 
 ## Quick start
 
 ```bash
 git clone <repo-url>
 cd testcrafter
-cp .env.example .env   # add your ANTHROPIC_API_KEY
+cp .env.example .env   # set AI_PROVIDER and add the matching API key (ANTHROPIC_API_KEY or GEMINI_API_KEY)
 docker compose up --build
 ```
 
