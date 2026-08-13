@@ -1,24 +1,33 @@
 import uuid
 
 
-def test_list_projects_without_session_override_does_not_500():
+def test_list_projects_without_session_override_does_not_500(monkeypatch, tmp_path):
     # Regression test: the `client` fixture overrides get_session with a plain
     # generator, which masked get_session being wrongly decorated with
     # @contextmanager (FastAPI's Depends() double-wraps that, breaking every
     # real request with AttributeError on '_GeneratorContextManager'). This
     # hits the app exactly as a real deployment would, with no override.
-    from fastapi.testclient import TestClient
-    from app.db import Base, engine
-    from app.main import app
+    from sqlalchemy.orm import sessionmaker
+    from app.db import Base, make_engine
+    import app.db as db_module
 
-    # Since main.py no longer runs Base.metadata.create_all() at import time
+    # main.py no longer runs Base.metadata.create_all() at import time
     # (schema creation moved to `alembic upgrade head`, run separately in
-    # production/Docker), this test must ensure the schema exists on the
-    # default engine's database itself, or it hits a real, table-less
-    # sqlite file and fails with "no such table: users" instead of
-    # exercising the session-handling behavior it's actually regression
-    # testing for.
-    Base.metadata.create_all(engine)
+    # production/Docker), so get_session needs a database with the schema
+    # already present. Rather than creating the schema on the app's real
+    # default engine/database (sqlite:///./testcrafter.db) — which would
+    # leave a "stale pre-Alembic" file behind with no alembic_version row,
+    # exactly what CONTRIBUTING.md warns against — point SessionLocal at an
+    # isolated, temporary database for the duration of this test. This still
+    # exercises get_session's real code path (it reads SessionLocal fresh on
+    # each call) with no dependency_overrides, which is what this test needs
+    # to prove.
+    test_engine = make_engine(f"sqlite:///{tmp_path / 'test.db'}")
+    Base.metadata.create_all(test_engine)
+    monkeypatch.setattr(db_module, "SessionLocal", sessionmaker(bind=test_engine, expire_on_commit=False))
+
+    from fastapi.testclient import TestClient
+    from app.main import app
 
     with TestClient(app) as real_client:
         email = f"real-deployment-check-{uuid.uuid4()}@example.com"
