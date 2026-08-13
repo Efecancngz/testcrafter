@@ -1,0 +1,33 @@
+import json
+
+from pydantic import ValidationError
+
+from app.ai.base import AIProvider
+from app.schemas import PageStructure, GeneratedScenario
+
+SYSTEM_PROMPT = (
+    "You are a QA engineer. Given a page structure and a description, output a JSON array "
+    "of test scenarios. Each scenario has a 'title' and 'steps' (action, selector, value, expected). "
+    "Output ONLY the JSON array, no prose."
+)
+
+
+class GeminiProvider(AIProvider):
+    def __init__(self, client, model: str = "gemini-2.5-flash"):
+        self._client = client
+        self._model = model
+
+    def generate_scenarios(self, page_structure: PageStructure, description: str) -> list[GeneratedScenario]:
+        response = self._client.models.generate_content(
+            model=self._model,
+            contents=(
+                f"{SYSTEM_PROMPT}\n\n"
+                f"Page structure: {page_structure.model_dump_json()}\nDescription: {description}"
+            ),
+        )
+        raw_text = response.text
+        try:
+            parsed = json.loads(raw_text)
+            return [GeneratedScenario.model_validate(item) for item in parsed]
+        except (json.JSONDecodeError, ValidationError) as exc:
+            raise ValueError(f"invalid AI response: {exc}") from exc
