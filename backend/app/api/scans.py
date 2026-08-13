@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from playwright.sync_api import Error as PlaywrightError
 from pydantic import BaseModel
@@ -15,6 +16,8 @@ from app.schemas import GeneratedScenario, ScenarioStep
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+SCREENSHOTS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "screenshots"
 
 def get_ai_provider() -> AIProvider:
     provider_name = os.getenv("AI_PROVIDER", "claude")
@@ -49,6 +52,7 @@ class RunStepOut(BaseModel):
     step_index: int
     status: str
     log_message: str | None = None
+    screenshot_path: str | None = None
     model_config = {"from_attributes": True}
 
 class RunOut(BaseModel):
@@ -127,16 +131,17 @@ def run_scan(scan_id: int, session: Session = Depends(get_session)):
         steps = [ScenarioStep(**s) for s in json.loads(scenario.steps_json)]
         generated = GeneratedScenario(title=scenario.title, steps=steps)
 
-        started_at = datetime.now(timezone.utc)
-        results = run_scenario(generated, base_url="")
-        finished_at = datetime.now(timezone.utc)
-        run_status = "passed" if all(r.status == "passed" for r in results) else "failed"
-
-        run = Run(scenario_id=scenario.id, status=run_status, started_at=started_at, finished_at=finished_at)
+        run = Run(scenario_id=scenario.id, status="pending", started_at=datetime.now(timezone.utc), finished_at=datetime.now(timezone.utc))
         session.add(run)
         session.flush()
+
+        results = run_scenario(generated, base_url="", screenshot_dir=SCREENSHOTS_DIR / str(run.id))
+        run.finished_at = datetime.now(timezone.utc)
+        run.status = "passed" if all(r.status == "passed" for r in results) else "failed"
+
         for index, result in enumerate(results):
-            session.add(RunStep(run_id=run.id, step_index=index, status=result.status, log_message=result.log_message))
+            screenshot_path = f"/screenshots/{run.id}/{index}.png" if result.screenshot_path else None
+            session.add(RunStep(run_id=run.id, step_index=index, status=result.status, log_message=result.log_message, screenshot_path=screenshot_path))
         runs.append(run)
 
     session.commit()

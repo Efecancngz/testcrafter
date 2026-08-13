@@ -81,7 +81,9 @@ def test_get_scan_not_found_returns_404(client):
     resp = client.get("/scans/999")
     assert resp.status_code == 404
 
-def test_run_scan_executes_scenarios_and_persists_results(client):
+def test_run_scan_executes_scenarios_and_persists_results(client, monkeypatch, tmp_path):
+    monkeypatch.setattr("app.api.scans.SCREENSHOTS_DIR", tmp_path)
+
     project = client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
 
     fake_structure = PageStructure(url=FIXTURE_URL, elements=[PageElement(tag="button", role="button", selector="#submit", text="Log in")])
@@ -111,6 +113,9 @@ def test_run_scan_executes_scenarios_and_persists_results(client):
     assert runs[0]["status"] == "passed"
     assert len(runs[0]["steps"]) == 2
     assert all(step["status"] == "passed" for step in runs[0]["steps"])
+    run_id = runs[0]["id"]
+    for index, step in enumerate(runs[0]["steps"]):
+        assert step["screenshot_path"] == f"/screenshots/{run_id}/{index}.png"
 
 def test_run_scan_not_found_returns_404(client):
     resp = client.post("/scans/999/run")
