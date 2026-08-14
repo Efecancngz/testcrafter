@@ -13,6 +13,8 @@ Or via Docker: `docker compose up --build`.
 
 If you're pulling this change into an existing local checkout, delete your local `testcrafter.db` one last time — this change introduces Alembic migrations, and a pre-Alembic database can't be reconciled with the migration history. After this, `docker compose up` (or `alembic upgrade head` for a manual setup) manages schema changes automatically; no more manual deletions going forward.
 
+If you're pulling this change into an existing local checkout and use Docker, the `frontend` service's anonymous `node_modules` volume won't pick up newly added dependencies (`react-router-dom`, `tailwindcss`, and others added by the dashboard redesign) automatically — run `docker compose up --build --renew-anon-volumes` once, or `docker compose down -v` first, to pick them up.
+
 ## Running tests
 
 ```bash

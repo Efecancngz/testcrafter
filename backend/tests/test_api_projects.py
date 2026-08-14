@@ -1,4 +1,8 @@
 import uuid
+import time
+from unittest.mock import patch
+
+from app.schemas import PageStructure, PageElement, GeneratedScenario, ScenarioStep
 
 
 def test_list_projects_without_session_override_does_not_500(monkeypatch, tmp_path):
@@ -62,3 +66,75 @@ def test_list_projects_only_returns_own_projects(client):
 
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+def test_get_project_returns_owned_project(authenticated_client):
+    create_resp = authenticated_client.post("/projects", json={"name": "Demo Site", "base_url": "https://example.com"})
+    project_id = create_resp.json()["id"]
+
+    resp = authenticated_client.get(f"/projects/{project_id}")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == project_id
+    assert body["name"] == "Demo Site"
+
+
+def test_get_project_404_for_unknown_id(authenticated_client):
+    resp = authenticated_client.get("/projects/999999")
+    assert resp.status_code == 404
+
+
+def test_get_project_404_for_other_users_project(client):
+    token_a = client.post("/auth/register", json={"email": "get-a@example.com", "password": "pw"}).json()["access_token"]
+    create_resp = client.post("/projects", json={"name": "A's project", "base_url": "https://a.example.com"}, headers={"Authorization": f"Bearer {token_a}"})
+    project_id = create_resp.json()["id"]
+
+    token_b = client.post("/auth/register", json={"email": "get-b@example.com", "password": "pw"}).json()["access_token"]
+    resp = client.get(f"/projects/{project_id}", headers={"Authorization": f"Bearer {token_b}"})
+
+    assert resp.status_code == 404
+
+
+def test_list_project_scans_returns_newest_first(authenticated_client):
+    project_id = authenticated_client.post("/projects", json={"name": "Demo Site", "base_url": "https://example.com"}).json()["id"]
+
+    fake_structure = PageStructure(url="https://example.com", elements=[PageElement(tag="button", role="button", selector="#submit", text="Go")])
+    fake_scenarios = [GeneratedScenario(title="Click submit", steps=[ScenarioStep(action="click", selector="#submit")])]
+
+    with patch("app.api.scans.extract_page_structure", return_value=fake_structure), \
+         patch("app.api.scans.get_ai_provider") as mock_get_provider:
+        mock_get_provider.return_value.generate_scenarios.return_value = fake_scenarios
+        first = authenticated_client.post(f"/projects/{project_id}/scans", json={"target_url": "https://example.com", "description": "first"})
+        time.sleep(0.01)
+        second = authenticated_client.post(f"/projects/{project_id}/scans", json={"target_url": "https://example.com", "description": "second"})
+
+    resp = authenticated_client.get(f"/projects/{project_id}/scans")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 2
+    assert body[0]["id"] == second.json()["id"]
+    assert body[1]["id"] == first.json()["id"]
+    assert "scenarios" not in body[0]
+    assert "created_at" in body[0]
+    assert body[0]["created_at"].endswith("+00:00")
+
+
+def test_list_project_scans_empty_for_new_project(authenticated_client):
+    project_id = authenticated_client.post("/projects", json={"name": "Demo Site", "base_url": "https://example.com"}).json()["id"]
+
+    resp = authenticated_client.get(f"/projects/{project_id}/scans")
+
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_list_project_scans_404_for_other_users_project(client):
+    token_a = client.post("/auth/register", json={"email": "scans-a@example.com", "password": "pw"}).json()["access_token"]
+    project_id = client.post("/projects", json={"name": "A's project", "base_url": "https://a.example.com"}, headers={"Authorization": f"Bearer {token_a}"}).json()["id"]
+
+    token_b = client.post("/auth/register", json={"email": "scans-b@example.com", "password": "pw"}).json()["access_token"]
+    resp = client.get(f"/projects/{project_id}/scans", headers={"Authorization": f"Bearer {token_b}"})
+
+    assert resp.status_code == 404

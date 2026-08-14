@@ -1,31 +1,33 @@
 # Handoff — testcrafter
-Son güncelleme: 2026-08-13 (dashboard redesign spec'i yazıldı, gün bitti), güncelleyen: Claude Opus 5
+Son güncelleme: 2026-08-14 (dashboard redesign'in 8 task'ının tamamı shipped), güncelleyen: Claude Sonnet 5
 
 ## Şu an ne yapılıyor
-PR #4 (bot challenge detection) kullanıcı tarafından merge edildi. Ardından, o branch'in final review'inde ertelenen 2 minor bulgu direkt `main`'e küçük bir cleanup olarak uygulandı (commit `ad6e7ee`): `scans.py`'deki 4 yerdeki `ScanOut(...)` inşası `_scan_out()` helper'ına toplandı; `crawler.py`'de `browser.close()` artık `try/finally` ile her çıkış yolunda garanti altında.
+**Dashboard redesign tamamlandı** — `docs/superpowers/specs/2026-08-13-dashboard-redesign-design.md`'den yazılan 8 task'lık plan (`.superpowers/sdd/2026-08-14-dashboard-redesign/`) baştan sona uygulandı, `feat/dashboard-redesign` branch'inde:
 
-Sonrasında **dashboard redesign** için brainstorming yapıldı ve spec yazıldı: `docs/superpowers/specs/2026-08-13-dashboard-redesign-design.md` (commit `b10748d`). Kullanıcı gün sonunda implementasyon planına geçmeden durdurdu — bir sonraki oturumda `writing-plans` skill'i ile plana geçilecek.
+- **Backend (Task 1-3):** `Scan.created_at` migration'ı, `GET /projects/{id}`, `GET /projects/{id}/scans` (hafif `ScanSummaryOut` — senaryo taşımıyor, N+1 riski yok). 60 backend testi (yeni ownership/ordering testleri dahil) yeşil.
+- **Frontend scaffolding (Task 4):** `react-router-dom`, Tailwind, shadcn/ui kuruldu.
+- **Paylaşılan bileşenler (Task 5):** `StatusBadge`, `Layout`, `RequireAuth`, `LoginPage`.
+- **Sayfalar (Task 6-7):** `ProjectListPage`, `ProjectDetailPage` (404 tespiti `err.status === 404` ile, string-matching değil), `ScanDetailPage`, `Screenshot` bileşeni.
+- **Routing entegrasyonu (Task 8, bu oturum):** `frontend/src/App.jsx` tamamen yeniden yazıldı — eski tek-parça (single-page) yapı kaldırıldı, 4 route (`/login`, `/`, `/projects/:projectId`, `/scans/:scanId`) `RequireAuth` + `Layout` ile sarmalanarak bağlandı.
 
-**Dashboard redesign kapsamı özet:**
-- Backend ön koşulu: `Scan.created_at` kolonu (yeni migration) + `GET /projects/{id}` + `GET /projects/{id}/scans` (yeni, hafif `ScanSummaryOut` şeması — senaryo listesi taşımıyor, N+1 riskini önlüyor)
-- Frontend: `react-router-dom` + Tailwind CSS + shadcn/ui ile gerçek çok-sayfalı dashboard — 3 route (`/` proje listesi, `/projects/:id` proje detayı+scan geçmişi, `/scans/:id` scan detayı), `Layout`/`StatusBadge` gibi paylaşılan bileşenler
-- Görsel yön: sade/minimal/teknik his, referans Supabase Dashboard, koyu tema + nötr gri/koyu yeşil vurgu paleti (kesin renk tonları implementasyon zamanı kararı)
+Tam manuel uçtan uca doğrulama yapıldı (Chrome MCP ile): login redirect, register, proje oluşturma, scan oluşturma (AI provider bu ortamda yapılandırılı olmadığı için scan'ler beklenen şekilde `failed` durumuna düştü — bu proje için bilinen/beklenen davranış), scan detay sayfası, proje detayına dönüp scan history tablosunda (en yeni üstte) görme, logout + logout sonrası `/`'e girince tekrar `/login`'e yönlenme, var olmayan proje/scan id'lerinde "not found" mesajı (crash yok). Hepsi beklendiği gibi çalıştı. Detaylar: `.superpowers/sdd/2026-08-14-dashboard-redesign/task-8-report.md`.
 
 ## Sıradaki somut adım
-`docs/superpowers/specs/2026-08-13-dashboard-redesign-design.md`'den `writing-plans` skill'i ile implementasyon planı yazılacak, sonra subagent-driven-development ile uygulanacak. Backend task'ları (created_at + 2 endpoint) frontend task'larından önce sırada olmalı (frontend onlara bağımlı).
+Branch tam review'e hazır: `feat/dashboard-redesign` → `main`. Kullanıcı PR açmaya veya `finishing-a-development-branch` skill'i ile ilerlemeye karar verebilir. Bu oturumda PR açılmadı, sadece kod + HANDOFF commit edildi.
 
 ## Bilinmesi gerekenler
-- Bu oturumda ayrıca kullanıcı kendi sitesini test ederken iki ayrı konuyla karşılaştı: (1) Docker container'dan `localhost:5173`'e erişememe — kod değişikliği değil, `host.docker.internal` kullanımı öğretildi; (2) bot doğrulama sayfalarının anlamsız sonuç üretmesi — bu PR #4 ile çözüldü.
-- Kullanıcının görsel/tasarım brainstorming'inde tercih ettiği sıra: genel his → referans site → renk paleti → component library (en bağımsızdan en bağımlıya). Gelecekteki tasarım konuşmalarında bu sırayı takip et.
-- `docker-compose.yml`/`.env.example` dashboard redesign için yeni env var gerektirmiyor (sadece kod/migration değişikliği).
+- Backend'i lokal çalıştırmak için `SECRET_KEY` (ve varsa `ANTHROPIC_API_KEY`/`GEMINI_API_KEY`) repo kökündeki `.env`'den `uvicorn`'u başlatmadan önce ortam değişkeni olarak export edilmeli — `main.py` dotenv otomatik yüklemiyor, sadece gerçek env var'lara bakıyor.
+- AI provider yapılandırılı değilse (veya API key geçersizse) scan oluşturma `status: "failed"` ile sonuçlanır, crash etmez — bu, `backend/app/api/scans.py`'nin bilinen/tasarlanmış exception handling davranışı, bug değil.
+- `docker-compose.yml`/`.env.example` dashboard redesign için yeni env var gerektirmedi.
 
 ## İlgili dosyalar
-- `docs/superpowers/specs/2026-08-13-dashboard-redesign-design.md` — tam spec
-- `frontend/src/App.jsx` — mevcut tek-parça yapı, redesign'de route'lara bölünecek
-- `backend/app/api/projects.py` — yeni `GET /projects/{id}` ve `GET /projects/{id}/scans` buraya eklenecek
-- `backend/app/models.py` — `Scan.created_at` buraya eklenecek
+- `.superpowers/sdd/2026-08-14-dashboard-redesign/` — planın 8 task brief'i + her task'ın raporu
+- `docs/superpowers/specs/2026-08-13-dashboard-redesign-design.md` — orijinal tasarım spec'i
+- `frontend/src/App.jsx` — yeni routed yapı (route tanımları burada)
+- `frontend/src/pages/`, `frontend/src/components/` — sayfa ve paylaşılan bileşenler
+- `backend/app/api/projects.py` — `GET /projects/{id}`, `GET /projects/{id}/scans`
 
 ## Son 3 commit
-- b10748d docs: add dashboard redesign design spec
-- ad6e7ee refactor: dedupe ScanOut construction, guarantee browser.close() on all crawl exits
-- 8c0a0f5 Merge pull request #4 from Efecancngz/feat/bot-challenge-detection
+- (bu commit) feat: wire up dashboard routing, remove single-page layout
+- d240d39 feat: add ScanDetailPage and Screenshot component
+- 413d4ab fix: use error.status instead of message text for 404 detection in ProjectDetailPage
