@@ -44,6 +44,10 @@ export default function ProjectDetailPage() {
     }
   }
 
+  if (error) {
+    return <p className="text-sm text-red-400">{error}</p>;
+  }
+
   if (notFound) {
     return <p className="text-sm text-muted-foreground">Project not found.</p>;
   }

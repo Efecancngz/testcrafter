@@ -57,7 +57,7 @@ export default function ProjectListPage() {
 
       {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
 
-      {projects === null && <p className="text-sm text-muted-foreground">Loading...</p>}
+      {projects === null && !error && <p className="text-sm text-muted-foreground">Loading...</p>}
 
       {projects !== null && projects.length === 0 && (
         <p className="text-sm text-muted-foreground">No projects yet — create one above to get started.</p>

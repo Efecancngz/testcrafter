@@ -118,6 +118,7 @@ def test_list_project_scans_returns_newest_first(authenticated_client):
     assert body[1]["id"] == first.json()["id"]
     assert "scenarios" not in body[0]
     assert "created_at" in body[0]
+    assert body[0]["created_at"].endswith("+00:00")
 
 
 def test_list_project_scans_empty_for_new_project(authenticated_client):

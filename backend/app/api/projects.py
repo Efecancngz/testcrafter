@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from sqlalchemy.orm import Session
 from app.db import get_session
 from app.models import Project, Scan, User
@@ -25,6 +25,16 @@ class ScanSummaryOut(BaseModel):
     blocked_reason: str | None = None
     created_at: datetime
     model_config = {"from_attributes": True}
+
+    @field_serializer("created_at")
+    def _serialize_created_at(self, value: datetime) -> str:
+        # SQLite's DateTime column drops the tzinfo on write (even though it's
+        # always written as UTC via now_utc()), so a naive value here always
+        # means UTC. Stamp the offset back on before serializing — otherwise
+        # `new Date(...)` on the frontend (or any other consumer) parses the
+        # offset-less string as local time, not UTC, and displays it wrong by
+        # the viewer's UTC offset.
+        return (value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value).isoformat()
 
 @router.post("/projects", response_model=ProjectOut, status_code=201)
 def create_project(payload: ProjectCreate, user: User = Depends(get_current_user), session: Session = Depends(get_session)):

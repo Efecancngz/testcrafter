@@ -18,6 +18,16 @@ Creates a project owned by the authenticated caller (`Depends(get_current_user)`
 
 Scoped to the caller's own projects. Previously this returned every project in the database regardless of owner; that was a real gap (any client could enumerate all users' projects), now closed by the same `get_current_user` dependency. Unpaginated for now — fine at MVP scale, would need pagination before this became a real multi-tenant product.
 
+## `GET /projects/{project_id}`
+
+Returns a single project owned by the caller. 404s (not 403) if the id doesn't exist *or* belongs to another user — same not-revealing-existence rationale as `POST /projects/{project_id}/scans` below and `GET /scans/{scan_id}`.
+
+## `GET /projects/{project_id}/scans`
+
+Returns the caller's scans for a project, newest first, via `ScanSummaryOut`. Same 404-not-403 ownership check as `GET /projects/{project_id}`. `ScanSummaryOut` deliberately omits `scenarios` — this endpoint backs the project detail page's scan-history table, which only needs `target_url`, `status`, `blocked_reason`, and `created_at` per row; fetching and serializing every scan's full scenario list just to render a list would be wasted work for a view that never shows it. Callers that need scenarios still go through `GET /scans/{scan_id}`.
+
+`created_at` is serialized with an explicit UTC offset (e.g. `...+00:00`) rather than a bare ISO datetime, since the underlying SQLite column drops tzinfo on write — see the `field_serializer` on `ScanSummaryOut`. Without it, any consumer that parses the string as local time (as JavaScript's `Date` constructor does for offset-less strings) would display the wrong time.
+
 ## `POST /projects/{project_id}/scans`
 
 The core endpoint. Requires auth, and 404s (not 403) if `project_id` exists but isn't owned by the caller — the API deliberately doesn't reveal that a project id exists to a caller who doesn't own it. Synchronously: crawls the target URL, calls the configured AI provider, and persists generated scenarios — all in one request/response cycle. This is deliberately synchronous for the MVP (simpler to reason about and test) even though it means the caller waits for both a page crawl and an AI call. A background job queue is the natural next step once this gets slow in practice, but isn't justified yet.
