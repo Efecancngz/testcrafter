@@ -20,11 +20,16 @@ export default function ScanDetailPage() {
   const pollRef = useRef(null);
 
   useEffect(() => {
+    let cancelled = false;
     setNotFound(false);
     setRuns(null);
     getScan(scanId)
-      .then(setScan)
+      .then((fetchedScan) => {
+        if (cancelled) return;
+        setScan(fetchedScan);
+      })
       .catch((err) => {
+        if (cancelled) return;
         if (err.status === 404) {
           setNotFound(true);
         } else {
@@ -33,6 +38,7 @@ export default function ScanDetailPage() {
       });
     listScanRuns(scanId)
       .then((fetchedRuns) => {
+        if (cancelled) return;
         setRuns(fetchedRuns);
         if (hasInFlightRun(fetchedRuns)) {
           startPolling();
@@ -43,7 +49,10 @@ export default function ScanDetailPage() {
         // handling above covers real fetch failures for this scan.
       });
 
-    return stopPolling;
+    return () => {
+      cancelled = true;
+      stopPolling();
+    };
   }, [scanId]);
 
   function startPolling() {
