@@ -163,16 +163,27 @@ git commit -m "feat: add GET /projects/{id} endpoint"
 
 - [ ] **Step 1: Write the failing tests**
 
-In `backend/tests/test_api_projects.py`, append (add `import time` at the top of the file if not already present, for the ordering test's sleep):
+In `backend/tests/test_api_projects.py`, append. This mocks `app.api.scans.extract_page_structure` and `app.api.scans.get_ai_provider`, following the exact pattern every existing scan-creation test uses in `backend/tests/test_api_scans.py` (e.g. `test_create_scan_generates_scenarios`) — real crawls are never exercised in this suite. Add these imports at the top of the file alongside the existing `import uuid`:
+
+```python
+import time
+from unittest.mock import patch
+from app.schemas import PageStructure, PageElement, GeneratedScenario, ScenarioStep
+```
 
 ```python
 def test_list_project_scans_returns_newest_first(authenticated_client):
-    import time
     project_id = authenticated_client.post("/projects", json={"name": "Demo Site", "base_url": "https://example.com"}).json()["id"]
 
-    first = authenticated_client.post(f"/projects/{project_id}/scans", json={"target_url": "https://example.com", "description": "first"})
-    time.sleep(0.01)
-    second = authenticated_client.post(f"/projects/{project_id}/scans", json={"target_url": "https://example.com", "description": "second"})
+    fake_structure = PageStructure(url="https://example.com", elements=[PageElement(tag="button", role="button", selector="#submit", text="Go")])
+    fake_scenarios = [GeneratedScenario(title="Click submit", steps=[ScenarioStep(action="click", selector="#submit")])]
+
+    with patch("app.api.scans.extract_page_structure", return_value=fake_structure), \
+         patch("app.api.scans.get_ai_provider") as mock_get_provider:
+        mock_get_provider.return_value.generate_scenarios.return_value = fake_scenarios
+        first = authenticated_client.post(f"/projects/{project_id}/scans", json={"target_url": "https://example.com", "description": "first"})
+        time.sleep(0.01)
+        second = authenticated_client.post(f"/projects/{project_id}/scans", json={"target_url": "https://example.com", "description": "second"})
 
     resp = authenticated_client.get(f"/projects/{project_id}/scans")
 
@@ -203,8 +214,6 @@ def test_list_project_scans_404_for_other_users_project(client):
 
     assert resp.status_code == 404
 ```
-
-Note: `POST /projects/{id}/scans` in these tests will attempt a real crawl against `https://example.com` and likely fail/hang without network access or an AI provider configured — this mirrors the existing test suite's approach in `test_api_scans.py`, which already accepts `status in {"ready", "failed", "blocked"}` outcomes rather than requiring success. These new tests only assert on the *list* endpoint's shape/ordering/count, not on `status`, so they're robust to whichever outcome the crawl produces (including `failed` from a network error, which sets `scan.status = "failed"` and still gets committed with a `created_at`).
 
 - [ ] **Step 2: Run tests to verify they fail**
 
