@@ -189,3 +189,32 @@ def test_run_scenario_navigates_with_shared_browser_settings(tmp_path, monkeypat
     assert recorded["launch_args"] == browser_config.BROWSER_ARGS
     assert recorded["goto_kwargs"]["wait_until"] == browser_config.WAIT_UNTIL
     assert recorded["goto_kwargs"]["timeout"] == browser_config.NAVIGATION_TIMEOUT_MS
+
+def test_run_scenario_calls_on_step_after_each_step(tmp_path):
+    scenario = GeneratedScenario(
+        title="Two steps",
+        steps=[
+            ScenarioStep(action="goto", value=FIXTURE_URL),
+            ScenarioStep(action="expect_text", selector="#submit", expected="Log in"),
+        ],
+    )
+
+    calls = []
+    def on_step(index, result):
+        calls.append((index, result.status))
+
+    results = run_scenario(scenario, base_url="", screenshot_dir=tmp_path, on_step=on_step)
+
+    assert calls == [(0, "passed"), (1, "passed")]
+    assert len(results) == 2
+
+
+def test_run_scenario_without_on_step_still_works(tmp_path):
+    scenario = GeneratedScenario(
+        title="No callback provided",
+        steps=[ScenarioStep(action="goto", value=FIXTURE_URL)],
+    )
+
+    results = run_scenario(scenario, base_url="", screenshot_dir=tmp_path)
+
+    assert results[0].status == "passed"

@@ -40,6 +40,7 @@ Belirlenmiş bir sonraki iş yok. Aşağıdaki üç konu **bu oturumun hatası d
 - Backend `--reload` ile çalışmıyor; kod değişikliğinden sonra `docker compose restart backend` gerekiyor.
 - Backend'i lokal (Docker'sız) çalıştırmak için `SECRET_KEY` ve AI key'leri env var olarak export edilmeli — `main.py` dotenv otomatik yüklemiyor.
 - AI provider yapılandırılı değilse scan `status: "failed"` ile sonuçlanır, crash etmez — bilinen/tasarlanmış davranış.
+- **Arka plan scan run'ları için eşzamanlılık sınırı yok (bilinen kısıtlama, şimdilik düzeltilmiyor).** `POST /scans/{id}/run`, her scenario'yu FastAPI'nin varsayılan threadpool'unda (`~40` slot, tüm senkron request handler'larla paylaşılan) çalıştırıyor; her run, tam süresi boyunca (30-90sn+) bir slot ve bir Chromium process'i tutuyor. Aynı anda çalışan scan sayısını sınırlayan bir kuyruk veya tavan yok — tüm kullanıcılar genelinde yeterince fazla eşzamanlı scan, pool'u tüketip API'nin (bu arada `/runs` polling endpoint'i dahil) tamamen yanıt vermez hale gelmesine yol açabilir. Tam bir worker-queue implementasyonu şu an gerekli değil, ama bu sınır gelecekte sürpriz olarak yeniden keşfedilmesin diye burada not düşülüyor.
 
 ## İlgili dosyalar
 - `backend/app/browser.py` — crawler + runner'ın paylaştığı browser/navigasyon ayarları (yeni)

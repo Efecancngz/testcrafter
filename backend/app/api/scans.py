@@ -4,11 +4,13 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import FileResponse
 from playwright.sync_api import Error as PlaywrightError
 from pydantic import BaseModel, field_validator
+from sqlalchemy import func
 from sqlalchemy.orm import Session
+from app import db
 from app.db import get_session
 from app.models import Project, Run, RunStep, Scan, Scenario, User
 from app.auth import get_current_user
@@ -159,47 +161,92 @@ def get_scan(scan_id: int, user: User = Depends(get_current_user), session: Sess
     scenarios = session.query(Scenario).filter_by(scan_id=scan.id).all()
     return _scan_out(scan, scenarios)
 
-@router.post("/scans/{scan_id}/run", response_model=list[RunOut])
-def run_scan(scan_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+def _execute_scan_runs(run_ids: list[int]) -> None:
+    session = db.SessionLocal()
+    try:
+        for run_id in run_ids:
+            try:
+                run = session.get(Run, run_id)
+                scenario = session.get(Scenario, run.scenario_id)
+                steps = [ScenarioStep(**s) for s in json.loads(scenario.steps_json)]
+                generated = GeneratedScenario(title=scenario.title, steps=steps)
+
+                run.status = "running"
+                run.started_at = datetime.now(timezone.utc)
+                session.commit()
+
+                def on_step(index: int, result, run_id=run.id):
+                    screenshot_path = f"/runs/{run_id}/screenshots/{index}" if result.screenshot_path else None
+                    session.add(RunStep(run_id=run_id, step_index=index, status=result.status, log_message=result.log_message, screenshot_path=screenshot_path))
+                    session.commit()
+
+                results = run_scenario(generated, base_url="", screenshot_dir=SCREENSHOTS_DIR / str(run.id), on_step=on_step)
+                run.status = "passed" if all(r.status == "passed" for r in results) else "failed"
+                run.finished_at = datetime.now(timezone.utc)
+                session.commit()
+            except Exception:
+                logger.exception("run %s crashed during execution", run_id)
+                session.rollback()
+                run = session.get(Run, run_id)
+                if run is not None:
+                    run.status = "failed"
+                    run.finished_at = datetime.now(timezone.utc)
+                    session.commit()
+    finally:
+        session.close()
+
+@router.post("/scans/{scan_id}/run", response_model=list[RunOut], status_code=202)
+def run_scan(scan_id: int, background_tasks: BackgroundTasks, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     scan = _get_owned_scan(scan_id, user, session)
 
     scenarios = session.query(Scenario).filter_by(scan_id=scan.id).all()
+    scenario_ids = [s.id for s in scenarios]
+
+    in_flight = (
+        session.query(Run)
+        .filter(Run.scenario_id.in_(scenario_ids), Run.status.in_(["pending", "running"]))
+        .first()
+    )
+    if in_flight is not None:
+        raise HTTPException(status_code=409, detail="a run is already in progress for this scan")
+
     runs: list[Run] = []
     for scenario in scenarios:
-        steps = [ScenarioStep(**s) for s in json.loads(scenario.steps_json)]
-        generated = GeneratedScenario(title=scenario.title, steps=steps)
-
         run = Run(scenario_id=scenario.id, status="pending", started_at=datetime.now(timezone.utc), finished_at=None)
         session.add(run)
-        session.flush()
-        session.commit()
-
-        results = run_scenario(generated, base_url="", screenshot_dir=SCREENSHOTS_DIR / str(run.id))
-        run.finished_at = datetime.now(timezone.utc)
-        run.status = "passed" if all(r.status == "passed" for r in results) else "failed"
-
-        for index, result in enumerate(results):
-            screenshot_path = f"/runs/{run.id}/screenshots/{index}" if result.screenshot_path else None
-            session.add(RunStep(run_id=run.id, step_index=index, status=result.status, log_message=result.log_message, screenshot_path=screenshot_path))
         runs.append(run)
-
     session.commit()
+    for run in runs:
+        session.refresh(run)
 
-    run_ids = [run.id for run in runs]
-    steps_by_run: dict[int, list[RunStep]] = {run_id: [] for run_id in run_ids}
-    for run_step in session.query(RunStep).filter(RunStep.run_id.in_(run_ids)).all():
-        steps_by_run[run_step.run_id].append(run_step)
+    background_tasks.add_task(_execute_scan_runs, [run.id for run in runs])
 
     return [
-        RunOut(
-            id=run.id,
-            scenario_id=run.scenario_id,
-            status=run.status,
-            started_at=run.started_at,
-            finished_at=run.finished_at,
-            steps=steps_by_run[run.id],
-        )
+        RunOut(id=run.id, scenario_id=run.scenario_id, status=run.status, started_at=run.started_at, finished_at=run.finished_at, steps=[])
         for run in runs
+    ]
+
+@router.get("/scans/{scan_id}/runs", response_model=list[RunOut])
+def get_scan_runs(scan_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    scan = _get_owned_scan(scan_id, user, session)
+    scenario_ids = [s.id for s in session.query(Scenario).filter_by(scan_id=scan.id).all()]
+
+    latest_run_ids_subquery = (
+        session.query(func.max(Run.id))
+        .filter(Run.scenario_id.in_(scenario_ids))
+        .group_by(Run.scenario_id)
+        .scalar_subquery()
+    )
+    runs = session.query(Run).filter(Run.id.in_(latest_run_ids_subquery)).order_by(Run.id).all()
+
+    run_ids = [r.id for r in runs]
+    steps_by_run: dict[int, list[RunStep]] = {rid: [] for rid in run_ids}
+    for step in session.query(RunStep).filter(RunStep.run_id.in_(run_ids)).order_by(RunStep.step_index).all():
+        steps_by_run[step.run_id].append(step)
+
+    return [
+        RunOut(id=r.id, scenario_id=r.scenario_id, status=r.status, started_at=r.started_at, finished_at=r.finished_at, steps=steps_by_run[r.id])
+        for r in runs
     ]
 
 @router.get("/runs/{run_id}/screenshots/{step_index}")

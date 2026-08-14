@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 from playwright.sync_api import sync_playwright
 from app.browser import BROWSER_ARGS, NAVIGATION_TIMEOUT_MS, WAIT_UNTIL
 from app.schemas import GeneratedScenario
@@ -34,7 +35,12 @@ class StepResult:
     log_message: str
     screenshot_path: str | None = None
 
-def run_scenario(scenario: GeneratedScenario, base_url: str, screenshot_dir: Path) -> list[StepResult]:
+def run_scenario(
+    scenario: GeneratedScenario,
+    base_url: str,
+    screenshot_dir: Path,
+    on_step: Callable[[int, "StepResult"], None] | None = None,
+) -> list[StepResult]:
     screenshot_dir.mkdir(parents=True, exist_ok=True)
     results: list[StepResult] = []
     with sync_playwright() as p:
@@ -42,7 +48,10 @@ def run_scenario(scenario: GeneratedScenario, base_url: str, screenshot_dir: Pat
         page = browser.new_page()
         try:
             for index, step in enumerate(scenario.steps):
-                results.append(_run_step(page, step, base_url, screenshot_dir, index))
+                result = _run_step(page, step, base_url, screenshot_dir, index)
+                results.append(result)
+                if on_step is not None:
+                    on_step(index, result)
         finally:
             browser.close()
     return results

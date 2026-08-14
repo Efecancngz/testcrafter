@@ -10,6 +10,7 @@ os.environ["SECRET_KEY"] = "test-secret-key-do-not-use-in-production"
 
 import pytest
 from sqlalchemy.orm import sessionmaker
+import app.db as db_module
 from app.db import Base, make_engine
 
 @pytest.fixture(autouse=True)
@@ -30,10 +31,17 @@ from app.db import get_session
 from app.main import app
 
 @pytest.fixture
-def client(db_session):
+def client(db_session, monkeypatch):
     def override_get_session():
         yield db_session
     app.dependency_overrides[get_session] = override_get_session
+    # Background jobs (e.g. scan-run execution) open their own session via
+    # db.SessionLocal() rather than the request's get_session() dependency
+    # (that session closes as soon as the request returns). Point
+    # SessionLocal at db_session's engine so background writes land in the
+    # same in-memory database the test can see, instead of the real
+    # file-based default engine.
+    monkeypatch.setattr(db_module, "SessionLocal", sessionmaker(bind=db_session.get_bind(), expire_on_commit=False))
     yield TestClient(app)
     app.dependency_overrides.clear()
 

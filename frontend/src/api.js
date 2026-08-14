@@ -108,6 +108,11 @@ export async function runScan(scanId) {
   return handleResponse(res);
 }
 
+export async function listScanRuns(scanId) {
+  const res = await fetch(`${BASE_URL}/scans/${scanId}/runs`, { headers: { ...authHeaders() } });
+  return handleResponse(res);
+}
+
 export async function fetchScreenshotUrl(path) {
   const res = await fetch(`${BASE_URL}${path}`, { headers: { ...authHeaders() } });
   if (res.status === 401) {
