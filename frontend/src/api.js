@@ -69,6 +69,11 @@ export async function createProject(name, baseUrl) {
   return handleResponse(res);
 }
 
+export async function listProjects() {
+  const res = await fetch(`${BASE_URL}/projects`, { headers: { ...authHeaders() } });
+  return handleResponse(res);
+}
+
 export async function getProject(id) {
   const res = await fetch(`${BASE_URL}/projects/${id}`, { headers: { ...authHeaders() } });
   return handleResponse(res);
