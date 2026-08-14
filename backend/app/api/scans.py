@@ -220,6 +220,22 @@ def run_scan(scan_id: int, background_tasks: BackgroundTasks, user: User = Depen
         for run in runs
     ]
 
+@router.get("/scans/{scan_id}/runs", response_model=list[RunOut])
+def get_scan_runs(scan_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
+    scan = _get_owned_scan(scan_id, user, session)
+    scenario_ids = [s.id for s in session.query(Scenario).filter_by(scan_id=scan.id).all()]
+    runs = session.query(Run).filter(Run.scenario_id.in_(scenario_ids)).order_by(Run.id).all()
+
+    run_ids = [r.id for r in runs]
+    steps_by_run: dict[int, list[RunStep]] = {rid: [] for rid in run_ids}
+    for step in session.query(RunStep).filter(RunStep.run_id.in_(run_ids)).order_by(RunStep.step_index).all():
+        steps_by_run[step.run_id].append(step)
+
+    return [
+        RunOut(id=r.id, scenario_id=r.scenario_id, status=r.status, started_at=r.started_at, finished_at=r.finished_at, steps=steps_by_run[r.id])
+        for r in runs
+    ]
+
 @router.get("/runs/{run_id}/screenshots/{step_index}")
 def get_screenshot(run_id: int, step_index: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     owned = (

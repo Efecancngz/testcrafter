@@ -441,6 +441,50 @@ def test_execute_scan_runs_writes_steps_incrementally_and_finishes(tmp_path, mon
     assert steps[0].status == "passed"
     verify_session.close()
 
+
+def test_get_scan_runs_returns_current_progress(authenticated_client, db_session):
+    project = authenticated_client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
+    fake_structure = PageStructure(url="https://example.com", elements=[])
+    fake_scenarios = [GeneratedScenario(title="Only", steps=[ScenarioStep(action="goto", value="https://example.com")])]
+    with patch("app.api.scans.extract_page_structure", return_value=fake_structure), \
+         patch("app.api.scans.get_ai_provider") as mock_get_provider:
+        mock_get_provider.return_value.generate_scenarios.return_value = fake_scenarios
+        scan = authenticated_client.post(f"/projects/{project['id']}/scans", json={
+            "target_url": "https://example.com",
+            "description": "one scenario",
+        }).json()
+
+    scenario_id = db_session.query(Scenario).filter_by(scan_id=scan["id"]).first().id
+    run = Run(scenario_id=scenario_id, status="running", started_at=datetime.now(timezone.utc))
+    db_session.add(run)
+    db_session.commit()
+    db_session.add(RunStep(run_id=run.id, step_index=0, status="passed", log_message="ok"))
+    db_session.commit()
+
+    resp = authenticated_client.get(f"/scans/{scan['id']}/runs")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 1
+    assert body[0]["status"] == "running"
+    assert len(body[0]["steps"]) == 1
+    assert body[0]["steps"][0]["status"] == "passed"
+
+
+def test_get_scan_runs_404_for_other_users_scan(client):
+    token_a = client.post("/auth/register", json={"email": "runs-a@example.com", "password": "pw"}).json()["access_token"]
+    project = client.post("/projects", json={"name": "A", "base_url": "https://a.example.com"}, headers={"Authorization": f"Bearer {token_a}"}).json()
+    fake_structure = PageStructure(url="https://a.example.com", elements=[])
+    with patch("app.api.scans.extract_page_structure", return_value=fake_structure), \
+         patch("app.api.scans.get_ai_provider") as mock_get_provider:
+        mock_get_provider.return_value.generate_scenarios.return_value = []
+        scan = client.post(f"/projects/{project['id']}/scans", json={"target_url": "https://a.example.com", "description": "x"}, headers={"Authorization": f"Bearer {token_a}"}).json()
+
+    token_b = client.post("/auth/register", json={"email": "runs-b@example.com", "password": "pw"}).json()["access_token"]
+    resp = client.get(f"/scans/{scan['id']}/runs", headers={"Authorization": f"Bearer {token_b}"})
+
+    assert resp.status_code == 404
+
     assert seen_statuses_during_run == ["running"]
 
 
@@ -506,3 +550,47 @@ def test_execute_scan_runs_recovers_from_a_crashed_run_and_continues_to_the_next
     ok_steps = verify_session.query(RunStep).filter_by(run_id=ok_run_id).all()
     assert len(ok_steps) == 1
     verify_session.close()
+
+
+def test_get_scan_runs_returns_current_progress(authenticated_client, db_session):
+    project = authenticated_client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
+    fake_structure = PageStructure(url="https://example.com", elements=[])
+    fake_scenarios = [GeneratedScenario(title="Only", steps=[ScenarioStep(action="goto", value="https://example.com")])]
+    with patch("app.api.scans.extract_page_structure", return_value=fake_structure), \
+         patch("app.api.scans.get_ai_provider") as mock_get_provider:
+        mock_get_provider.return_value.generate_scenarios.return_value = fake_scenarios
+        scan = authenticated_client.post(f"/projects/{project['id']}/scans", json={
+            "target_url": "https://example.com",
+            "description": "one scenario",
+        }).json()
+
+    scenario_id = db_session.query(Scenario).filter_by(scan_id=scan["id"]).first().id
+    run = Run(scenario_id=scenario_id, status="running", started_at=datetime.now(timezone.utc))
+    db_session.add(run)
+    db_session.commit()
+    db_session.add(RunStep(run_id=run.id, step_index=0, status="passed", log_message="ok"))
+    db_session.commit()
+
+    resp = authenticated_client.get(f"/scans/{scan['id']}/runs")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 1
+    assert body[0]["status"] == "running"
+    assert len(body[0]["steps"]) == 1
+    assert body[0]["steps"][0]["status"] == "passed"
+
+
+def test_get_scan_runs_404_for_other_users_scan(client):
+    token_a = client.post("/auth/register", json={"email": "runs-a@example.com", "password": "pw"}).json()["access_token"]
+    project = client.post("/projects", json={"name": "A", "base_url": "https://a.example.com"}, headers={"Authorization": f"Bearer {token_a}"}).json()
+    fake_structure = PageStructure(url="https://a.example.com", elements=[])
+    with patch("app.api.scans.extract_page_structure", return_value=fake_structure), \
+         patch("app.api.scans.get_ai_provider") as mock_get_provider:
+        mock_get_provider.return_value.generate_scenarios.return_value = []
+        scan = client.post(f"/projects/{project['id']}/scans", json={"target_url": "https://a.example.com", "description": "x"}, headers={"Authorization": f"Bearer {token_a}"}).json()
+
+    token_b = client.post("/auth/register", json={"email": "runs-b@example.com", "password": "pw"}).json()["access_token"]
+    resp = client.get(f"/scans/{scan['id']}/runs", headers={"Authorization": f"Bearer {token_b}"})
+
+    assert resp.status_code == 404
