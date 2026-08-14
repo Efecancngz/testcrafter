@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { Routes, Route, useNavigate } from "react-router-dom";
 import { setUnauthorizedHandler } from "./api";
 import LoginPage from "./pages/LoginPage";
@@ -9,18 +9,15 @@ import Layout from "./components/Layout";
 import RequireAuth from "./components/RequireAuth";
 
 export default function App() {
-  const [, forceRerender] = useState(0);
   const navigate = useNavigate();
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      forceRerender((n) => n + 1);
       navigate("/login");
     });
   }, [navigate]);
 
   function handleLogout() {
-    forceRerender((n) => n + 1);
     navigate("/login");
   }
 
