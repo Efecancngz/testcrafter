@@ -926,6 +926,8 @@ export async function getScan(scanId) {
 }
 ```
 
+**Note (ruling from Task 6's review):** `ScanDetailPage`'s 404 detection below reads `err.status`, not a string match on `err.message`. This requires `handleResponse` in `api.js` to attach the response status to the thrown Error — a fix already applied during Task 6's fix loop (`err.status = res.status` added right before the `throw` in `handleResponse`, alongside the same fix in `ProjectDetailPage.jsx`). If for any reason that fix isn't present on this branch when you start, add it to `handleResponse` first: after building the Error from `body?.detail`, set `error.status = res.status` before throwing.
+
 - [ ] **Step 2: Create `Screenshot` component**
 
 Create `frontend/src/components/Screenshot.jsx` (relocated verbatim from `App.jsx`'s current `Screenshot` function, unchanged logic, only the wrapper `style` swapped for a Tailwind class):
@@ -984,7 +986,7 @@ export default function ScanDetailPage() {
     getScan(scanId)
       .then(setScan)
       .catch((err) => {
-        if (err.message.includes("404")) {
+        if (err.status === 404) {
           setNotFound(true);
         } else {
           setError(err.message);
