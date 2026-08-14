@@ -25,7 +25,9 @@ async function handleResponse(res) {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new Error(body?.detail || `Request failed with status ${res.status}`);
+    const error = new Error(body?.detail || `Request failed with status ${res.status}`);
+    error.status = res.status;
+    throw error;
   }
   return res.json();
 }

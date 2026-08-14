@@ -22,7 +22,7 @@ export default function ProjectDetailPage() {
         setScans(s);
       })
       .catch((err) => {
-        if (err.message.includes("404")) {
+        if (err.status === 404) {
           setNotFound(true);
         } else {
           setError(err.message);
