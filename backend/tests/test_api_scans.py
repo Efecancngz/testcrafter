@@ -30,6 +30,42 @@ def test_create_scan_generates_scenarios(authenticated_client):
     assert len(body["scenarios"]) == 1
     assert body["scenarios"][0]["title"] == "Click submit"
 
+def test_create_scan_normalizes_target_url_missing_scheme(authenticated_client):
+    project = authenticated_client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
+
+    fake_structure = PageStructure(url="https://example.com", elements=[])
+
+    with patch("app.api.scans.extract_page_structure", return_value=fake_structure) as mock_extract, \
+         patch("app.api.scans.get_ai_provider") as mock_get_provider:
+        mock_get_provider.return_value.generate_scenarios.return_value = []
+        resp = authenticated_client.post(f"/projects/{project['id']}/scans", json={
+            "target_url": "example.com",
+            "description": "No scheme provided",
+        })
+
+    assert resp.status_code == 201
+    assert resp.json()["target_url"] == "https://example.com"
+    mock_extract.assert_called_once_with("https://example.com")
+
+
+def test_create_scan_leaves_url_with_scheme_unchanged(authenticated_client):
+    project = authenticated_client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
+
+    fake_structure = PageStructure(url="http://example.com", elements=[])
+
+    with patch("app.api.scans.extract_page_structure", return_value=fake_structure) as mock_extract, \
+         patch("app.api.scans.get_ai_provider") as mock_get_provider:
+        mock_get_provider.return_value.generate_scenarios.return_value = []
+        resp = authenticated_client.post(f"/projects/{project['id']}/scans", json={
+            "target_url": "http://example.com",
+            "description": "Scheme already provided",
+        })
+
+    assert resp.status_code == 201
+    assert resp.json()["target_url"] == "http://example.com"
+    mock_extract.assert_called_once_with("http://example.com")
+
+
 def test_create_scan_persists_ai_provider(authenticated_client, db_session, monkeypatch):
     monkeypatch.setenv("AI_PROVIDER", "gemini")
     project = authenticated_client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()

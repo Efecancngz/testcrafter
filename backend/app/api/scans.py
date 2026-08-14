@@ -1,12 +1,13 @@
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from playwright.sync_api import Error as PlaywrightError
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 from app.db import get_session
 from app.models import Project, Run, RunStep, Scan, Scenario, User
@@ -47,6 +48,14 @@ def _get_owned_scan(scan_id: int, user: User, session: Session) -> Scan:
 class ScanCreate(BaseModel):
     target_url: str
     description: str
+
+    @field_validator("target_url")
+    @classmethod
+    def _normalize_target_url(cls, value: str) -> str:
+        value = value.strip()
+        if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", value):
+            value = f"https://{value}"
+        return value
 
 class ScenarioOut(BaseModel):
     id: int
