@@ -1,16 +1,23 @@
-import { useState, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
-import { getScan, runScan } from "../api";
+import { useState, useEffect, useRef } from "react";
+import { useParams } from "react-router-dom";
+import { getScan, runScan, listScanRuns } from "../api";
 import StatusBadge from "../components/StatusBadge";
-import Screenshot from "../components/Screenshot";
+import RunAccordion from "../components/RunAccordion";
+
+const POLL_INTERVAL_MS = 1500;
+
+function hasInFlightRun(runs) {
+  return runs.some((r) => r.status === "pending" || r.status === "running");
+}
 
 export default function ScanDetailPage() {
   const { scanId } = useParams();
   const [scan, setScan] = useState(null);
   const [notFound, setNotFound] = useState(false);
   const [runs, setRuns] = useState(null);
-  const [running, setRunning] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState(null);
+  const pollRef = useRef(null);
 
   useEffect(() => {
     setNotFound(false);
@@ -24,18 +31,60 @@ export default function ScanDetailPage() {
           setError(err.message);
         }
       });
+    listScanRuns(scanId)
+      .then((fetchedRuns) => {
+        setRuns(fetchedRuns);
+        if (hasInFlightRun(fetchedRuns)) {
+          startPolling();
+        }
+      })
+      .catch(() => {
+        // No runs yet is not an error state here; getScan's own error
+        // handling above covers real fetch failures for this scan.
+      });
+
+    return stopPolling;
   }, [scanId]);
+
+  function startPolling() {
+    if (pollRef.current) return;
+    pollRef.current = setInterval(async () => {
+      try {
+        const latest = await listScanRuns(scanId);
+        setRuns(latest);
+        if (!hasInFlightRun(latest)) {
+          stopPolling();
+        }
+      } catch {
+        // Transient poll failure: retried on the next tick, no error shown.
+      }
+    }, POLL_INTERVAL_MS);
+  }
+
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }
 
   async function handleRun() {
     setError(null);
-    setRunning(true);
+    setStarting(true);
     try {
-      const result = await runScan(scanId);
-      setRuns(result);
+      const pendingRuns = await runScan(scanId);
+      setRuns(pendingRuns);
+      startPolling();
     } catch (err) {
-      setError(err.message);
+      if (err.status === 409) {
+        const latest = await listScanRuns(scanId);
+        setRuns(latest);
+        startPolling();
+      } else {
+        setError(err.message);
+      }
     } finally {
-      setRunning(false);
+      setStarting(false);
     }
   }
 
@@ -46,6 +95,8 @@ export default function ScanDetailPage() {
   if (!scan) {
     return <p className="text-sm text-muted-foreground">Loading...</p>;
   }
+
+  const running = hasInFlightRun(runs || []);
 
   return (
     <div>
@@ -71,38 +122,17 @@ export default function ScanDetailPage() {
       {scan.status === "ready" && (
         <button
           onClick={handleRun}
-          disabled={running}
+          disabled={starting || running}
           className="mb-6 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
         >
-          {running ? "Running..." : "Run scenarios"}
+          {starting || running ? "Running..." : "Run scenarios"}
         </button>
       )}
 
-      {runs && (
+      {runs && runs.length > 0 && (
         <div>
           <h2 className="mb-3 text-lg font-semibold tracking-tight">Results</h2>
-          <ul className="space-y-4">
-            {runs.map((run) => (
-              <li key={run.id}>
-                <div className="mb-2 flex items-center gap-2">
-                  <span className="text-sm">Scenario {run.scenario_id}</span>
-                  <StatusBadge status={run.status} />
-                </div>
-                <ul className="space-y-2 pl-4">
-                  {run.steps.map((step) => (
-                    <li key={step.id} className="text-sm">
-                      Step {step.step_index}: {step.status} {step.log_message ? `— ${step.log_message}` : ""}
-                      {step.screenshot_path && (
-                        <div className="mt-1">
-                          <Screenshot path={step.screenshot_path} stepIndex={step.step_index} />
-                        </div>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ul>
+          <RunAccordion runs={runs} scenarios={scan.scenarios} />
         </div>
       )}
     </div>
