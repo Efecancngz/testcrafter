@@ -8,6 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import FileResponse
 from playwright.sync_api import Error as PlaywrightError
 from pydantic import BaseModel, field_validator
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app import db
 from app.db import get_session
@@ -164,28 +165,33 @@ def _execute_scan_runs(run_ids: list[int]) -> None:
     session = db.SessionLocal()
     try:
         for run_id in run_ids:
-            run = session.get(Run, run_id)
-            scenario = session.get(Scenario, run.scenario_id)
-            steps = [ScenarioStep(**s) for s in json.loads(scenario.steps_json)]
-            generated = GeneratedScenario(title=scenario.title, steps=steps)
+            try:
+                run = session.get(Run, run_id)
+                scenario = session.get(Scenario, run.scenario_id)
+                steps = [ScenarioStep(**s) for s in json.loads(scenario.steps_json)]
+                generated = GeneratedScenario(title=scenario.title, steps=steps)
 
-            run.status = "running"
-            session.commit()
-
-            def on_step(index: int, result, run_id=run.id):
-                screenshot_path = f"/runs/{run_id}/screenshots/{index}" if result.screenshot_path else None
-                session.add(RunStep(run_id=run_id, step_index=index, status=result.status, log_message=result.log_message, screenshot_path=screenshot_path))
+                run.status = "running"
+                run.started_at = datetime.now(timezone.utc)
                 session.commit()
 
-            try:
+                def on_step(index: int, result, run_id=run.id):
+                    screenshot_path = f"/runs/{run_id}/screenshots/{index}" if result.screenshot_path else None
+                    session.add(RunStep(run_id=run_id, step_index=index, status=result.status, log_message=result.log_message, screenshot_path=screenshot_path))
+                    session.commit()
+
                 results = run_scenario(generated, base_url="", screenshot_dir=SCREENSHOTS_DIR / str(run.id), on_step=on_step)
                 run.status = "passed" if all(r.status == "passed" for r in results) else "failed"
+                run.finished_at = datetime.now(timezone.utc)
+                session.commit()
             except Exception:
-                logger.exception("run %s crashed during execution", run.id)
-                run.status = "failed"
-
-            run.finished_at = datetime.now(timezone.utc)
-            session.commit()
+                logger.exception("run %s crashed during execution", run_id)
+                session.rollback()
+                run = session.get(Run, run_id)
+                if run is not None:
+                    run.status = "failed"
+                    run.finished_at = datetime.now(timezone.utc)
+                    session.commit()
     finally:
         session.close()
 
@@ -224,7 +230,14 @@ def run_scan(scan_id: int, background_tasks: BackgroundTasks, user: User = Depen
 def get_scan_runs(scan_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     scan = _get_owned_scan(scan_id, user, session)
     scenario_ids = [s.id for s in session.query(Scenario).filter_by(scan_id=scan.id).all()]
-    runs = session.query(Run).filter(Run.scenario_id.in_(scenario_ids)).order_by(Run.id).all()
+
+    latest_run_ids_subquery = (
+        session.query(func.max(Run.id))
+        .filter(Run.scenario_id.in_(scenario_ids))
+        .group_by(Run.scenario_id)
+        .scalar_subquery()
+    )
+    runs = session.query(Run).filter(Run.id.in_(latest_run_ids_subquery)).order_by(Run.id).all()
 
     run_ids = [r.id for r in runs]
     steps_by_run: dict[int, list[RunStep]] = {rid: [] for rid in run_ids}

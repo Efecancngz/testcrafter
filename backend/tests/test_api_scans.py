@@ -444,6 +444,62 @@ def test_execute_scan_runs_writes_steps_incrementally_and_finishes(tmp_path, mon
     assert seen_statuses_during_run == ["running"]
 
 
+def test_execute_scan_runs_resets_started_at_to_actual_execution_time(tmp_path, monkeypatch):
+    # Regression test: started_at is stamped once when the whole batch is
+    # queued (run_scan), but _execute_scan_runs executes runs serially, so a
+    # later run in the batch must NOT report the queue-time timestamp as its
+    # own start — that would inflate its displayed duration by however long
+    # earlier runs in the batch took to execute.
+    from sqlalchemy.orm import sessionmaker
+    from app.db import Base, make_engine
+    import app.db as db_module
+    from app.api.scans import _execute_scan_runs
+    from app.models import Project, User
+
+    test_engine = make_engine(f"sqlite:///{tmp_path / 'test_started_at.db'}")
+    Base.metadata.create_all(test_engine)
+    TestSessionLocal = sessionmaker(bind=test_engine, expire_on_commit=False)
+    monkeypatch.setattr(db_module, "SessionLocal", TestSessionLocal)
+
+    setup_session = TestSessionLocal()
+    user = User(email="runner-duration@example.com", password_hash="x")
+    setup_session.add(user)
+    setup_session.flush()
+    project = Project(user_id=user.id, name="Demo", base_url="https://example.com")
+    setup_session.add(project)
+    setup_session.flush()
+    scan = Scan(project_id=project.id, target_url="https://example.com", description="d", page_structure_json="{}", ai_provider="claude", status="ready")
+    setup_session.add(scan)
+    setup_session.flush()
+    scenario = Scenario(scan_id=scan.id, title="Demo scenario", steps_json=json.dumps([{"action": "goto", "value": "https://example.com"}]))
+    setup_session.add(scenario)
+    setup_session.flush()
+
+    queued_at = datetime(2020, 1, 1, tzinfo=timezone.utc)  # far in the past, simulating batch-queue time
+    run = Run(scenario_id=scenario.id, status="pending", started_at=queued_at)
+    setup_session.add(run)
+    setup_session.commit()
+    run_id = run.id
+    setup_session.close()
+
+    def fake_run_scenario(generated, base_url, screenshot_dir, on_step=None):
+        if on_step is not None:
+            on_step(0, StepResult(status="passed", log_message="ok"))
+        return [StepResult(status="passed", log_message="ok")]
+
+    with patch("app.api.scans.run_scenario", side_effect=fake_run_scenario):
+        _execute_scan_runs([run_id])
+
+    verify_session = TestSessionLocal()
+    finished_run = verify_session.get(Run, run_id)
+    # SQLite stores DateTime columns without tzinfo, so normalize both sides
+    # to naive UTC before comparing.
+    reloaded_started_at = finished_run.started_at.replace(tzinfo=timezone.utc) if finished_run.started_at.tzinfo is None else finished_run.started_at
+    assert reloaded_started_at > queued_at
+    assert (datetime.now(timezone.utc) - reloaded_started_at).total_seconds() < 30
+    verify_session.close()
+
+
 def test_execute_scan_runs_recovers_from_a_crashed_run_and_continues_to_the_next(tmp_path, monkeypatch):
     from sqlalchemy.orm import sessionmaker
     from app.db import Base, make_engine
@@ -508,6 +564,73 @@ def test_execute_scan_runs_recovers_from_a_crashed_run_and_continues_to_the_next
     verify_session.close()
 
 
+def test_execute_scan_runs_recovers_from_a_crash_before_run_scenario_is_reached(tmp_path, monkeypatch):
+    # Regression test for the widened try/except: a crash while parsing
+    # steps_json (malformed JSON) happens BEFORE run_scenario is ever
+    # called, so the old try/except (which only wrapped the run_scenario
+    # call) would not have caught it, aborting the whole batch and leaving
+    # every remaining run stuck pending forever.
+    from sqlalchemy.orm import sessionmaker
+    from app.db import Base, make_engine
+    import app.db as db_module
+    from app.api.scans import _execute_scan_runs
+    from app.models import Project, User
+
+    test_engine = make_engine(f"sqlite:///{tmp_path / 'test_malformed.db'}")
+    Base.metadata.create_all(test_engine)
+    TestSessionLocal = sessionmaker(bind=test_engine, expire_on_commit=False)
+    monkeypatch.setattr(db_module, "SessionLocal", TestSessionLocal)
+
+    setup_session = TestSessionLocal()
+    user = User(email="runner3@example.com", password_hash="x")
+    setup_session.add(user)
+    setup_session.flush()
+    project = Project(user_id=user.id, name="Demo", base_url="https://example.com")
+    setup_session.add(project)
+    setup_session.flush()
+    scan = Scan(project_id=project.id, target_url="https://example.com", description="d", page_structure_json="{}", ai_provider="claude", status="ready")
+    setup_session.add(scan)
+    setup_session.flush()
+    malformed_scenario = Scenario(scan_id=scan.id, title="Malformed scenario", steps_json="not valid json")
+    ok_scenario = Scenario(scan_id=scan.id, title="OK scenario", steps_json=json.dumps([{"action": "goto", "value": "https://example.com"}]))
+    setup_session.add(malformed_scenario)
+    setup_session.add(ok_scenario)
+    setup_session.flush()
+    malformed_run = Run(scenario_id=malformed_scenario.id, status="pending", started_at=datetime.now(timezone.utc))
+    ok_run = Run(scenario_id=ok_scenario.id, status="pending", started_at=datetime.now(timezone.utc))
+    setup_session.add(malformed_run)
+    setup_session.add(ok_run)
+    setup_session.commit()
+    malformed_run_id = malformed_run.id
+    ok_run_id = ok_run.id
+    setup_session.close()
+
+    calls = []
+
+    def fake_run_scenario(generated, base_url, screenshot_dir, on_step=None):
+        calls.append(generated.title)
+        if on_step is not None:
+            on_step(0, StepResult(status="passed", log_message="ok"))
+        return [StepResult(status="passed", log_message="ok")]
+
+    with patch("app.api.scans.run_scenario", side_effect=fake_run_scenario):
+        _execute_scan_runs([malformed_run_id, ok_run_id])
+
+    # run_scenario was never called for the malformed run — it crashed
+    # before reaching that call — but the loop still continued to OK.
+    assert calls == ["OK scenario"]
+
+    verify_session = TestSessionLocal()
+    crashed = verify_session.get(Run, malformed_run_id)
+    assert crashed.status == "failed"
+    assert crashed.finished_at is not None
+
+    ok = verify_session.get(Run, ok_run_id)
+    assert ok.status == "passed"
+    assert ok.finished_at is not None
+    verify_session.close()
+
+
 def test_get_scan_runs_returns_current_progress(authenticated_client, db_session):
     project = authenticated_client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
     fake_structure = PageStructure(url="https://example.com", elements=[])
@@ -535,6 +658,49 @@ def test_get_scan_runs_returns_current_progress(authenticated_client, db_session
     assert body[0]["status"] == "running"
     assert len(body[0]["steps"]) == 1
     assert body[0]["steps"][0]["status"] == "passed"
+
+
+def test_get_scan_runs_returns_only_latest_run_per_scenario_after_rerun(authenticated_client, db_session):
+    project = authenticated_client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
+    fake_structure = PageStructure(url="https://example.com", elements=[])
+    fake_scenarios = [
+        GeneratedScenario(title="First", steps=[ScenarioStep(action="goto", value="https://example.com")]),
+        GeneratedScenario(title="Second", steps=[ScenarioStep(action="goto", value="https://example.com")]),
+    ]
+    with patch("app.api.scans.extract_page_structure", return_value=fake_structure), \
+         patch("app.api.scans.get_ai_provider") as mock_get_provider:
+        mock_get_provider.return_value.generate_scenarios.return_value = fake_scenarios
+        scan = authenticated_client.post(f"/projects/{project['id']}/scans", json={
+            "target_url": "https://example.com",
+            "description": "two scenarios",
+        }).json()
+
+    def make_fake_run_scenario(log_message):
+        def fake_run_scenario(generated, base_url, screenshot_dir, on_step=None):
+            result = StepResult(status="passed", log_message=log_message)
+            if on_step is not None:
+                on_step(0, result)
+            return [result]
+        return fake_run_scenario
+
+    with patch("app.api.scans.run_scenario", side_effect=make_fake_run_scenario("first run")):
+        first_run_ids = {r["id"] for r in authenticated_client.post(f"/scans/{scan['id']}/run").json()}
+
+    with patch("app.api.scans.run_scenario", side_effect=make_fake_run_scenario("second run")):
+        second_run_ids = {r["id"] for r in authenticated_client.post(f"/scans/{scan['id']}/run").json()}
+
+    assert first_run_ids.isdisjoint(second_run_ids)
+
+    resp = authenticated_client.get(f"/scans/{scan['id']}/runs")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 2
+    returned_run_ids = {r["id"] for r in body}
+    assert returned_run_ids == second_run_ids
+    for run in body:
+        assert len(run["steps"]) == 1
+        assert run["steps"][0]["log_message"] == "second run"
 
 
 def test_get_scan_runs_404_for_other_users_scan(client):
