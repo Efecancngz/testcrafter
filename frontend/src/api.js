@@ -95,6 +95,11 @@ export async function createScan(projectId, targetUrl, description) {
   return handleResponse(res);
 }
 
+export async function getScan(scanId) {
+  const res = await fetch(`${BASE_URL}/scans/${scanId}`, { headers: { ...authHeaders() } });
+  return handleResponse(res);
+}
+
 export async function runScan(scanId) {
   const res = await fetch(`${BASE_URL}/scans/${scanId}/run`, {
     method: "POST",
