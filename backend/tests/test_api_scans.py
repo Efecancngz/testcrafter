@@ -442,3 +442,67 @@ def test_execute_scan_runs_writes_steps_incrementally_and_finishes(tmp_path, mon
     verify_session.close()
 
     assert seen_statuses_during_run == ["running"]
+
+
+def test_execute_scan_runs_recovers_from_a_crashed_run_and_continues_to_the_next(tmp_path, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+    from app.db import Base, make_engine
+    import app.db as db_module
+    from app.api.scans import _execute_scan_runs
+    from app.models import Project, User
+
+    test_engine = make_engine(f"sqlite:///{tmp_path / 'test.db'}")
+    Base.metadata.create_all(test_engine)
+    TestSessionLocal = sessionmaker(bind=test_engine, expire_on_commit=False)
+    monkeypatch.setattr(db_module, "SessionLocal", TestSessionLocal)
+
+    setup_session = TestSessionLocal()
+    user = User(email="runner2@example.com", password_hash="x")
+    setup_session.add(user)
+    setup_session.flush()
+    project = Project(user_id=user.id, name="Demo", base_url="https://example.com")
+    setup_session.add(project)
+    setup_session.flush()
+    scan = Scan(project_id=project.id, target_url="https://example.com", description="d", page_structure_json="{}", ai_provider="claude", status="ready")
+    setup_session.add(scan)
+    setup_session.flush()
+    crashing_scenario = Scenario(scan_id=scan.id, title="Crashing scenario", steps_json=json.dumps([{"action": "goto", "value": "https://example.com"}]))
+    ok_scenario = Scenario(scan_id=scan.id, title="OK scenario", steps_json=json.dumps([{"action": "goto", "value": "https://example.com"}]))
+    setup_session.add(crashing_scenario)
+    setup_session.add(ok_scenario)
+    setup_session.flush()
+    crashing_run = Run(scenario_id=crashing_scenario.id, status="pending", started_at=datetime.now(timezone.utc))
+    ok_run = Run(scenario_id=ok_scenario.id, status="pending", started_at=datetime.now(timezone.utc))
+    setup_session.add(crashing_run)
+    setup_session.add(ok_run)
+    setup_session.commit()
+    crashing_run_id = crashing_run.id
+    ok_run_id = ok_run.id
+    setup_session.close()
+
+    calls = []
+
+    def fake_run_scenario(generated, base_url, screenshot_dir, on_step=None):
+        calls.append(generated.title)
+        if generated.title == "Crashing scenario":
+            raise RuntimeError("boom")
+        if on_step is not None:
+            on_step(0, StepResult(status="passed", log_message="ok"))
+        return [StepResult(status="passed", log_message="ok")]
+
+    with patch("app.api.scans.run_scenario", side_effect=fake_run_scenario):
+        _execute_scan_runs([crashing_run_id, ok_run_id])
+
+    assert calls == ["Crashing scenario", "OK scenario"]
+
+    verify_session = TestSessionLocal()
+    crashed = verify_session.get(Run, crashing_run_id)
+    assert crashed.status == "failed"
+    assert crashed.finished_at is not None
+
+    ok = verify_session.get(Run, ok_run_id)
+    assert ok.status == "passed"
+    assert ok.finished_at is not None
+    ok_steps = verify_session.query(RunStep).filter_by(run_id=ok_run_id).all()
+    assert len(ok_steps) == 1
+    verify_session.close()

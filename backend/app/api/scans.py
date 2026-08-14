@@ -177,10 +177,14 @@ def _execute_scan_runs(run_ids: list[int]) -> None:
                 session.add(RunStep(run_id=run_id, step_index=index, status=result.status, log_message=result.log_message, screenshot_path=screenshot_path))
                 session.commit()
 
-            results = run_scenario(generated, base_url="", screenshot_dir=SCREENSHOTS_DIR / str(run.id), on_step=on_step)
+            try:
+                results = run_scenario(generated, base_url="", screenshot_dir=SCREENSHOTS_DIR / str(run.id), on_step=on_step)
+                run.status = "passed" if all(r.status == "passed" for r in results) else "failed"
+            except Exception:
+                logger.exception("run %s crashed during execution", run.id)
+                run.status = "failed"
 
             run.finished_at = datetime.now(timezone.utc)
-            run.status = "passed" if all(r.status == "passed" for r in results) else "failed"
             session.commit()
     finally:
         session.close()
