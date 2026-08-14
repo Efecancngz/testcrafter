@@ -5,8 +5,11 @@ import pytest
 from playwright.sync_api import Error as PlaywrightError
 from app.crawler import BotChallengeDetected
 from app.api.scans import SCREENSHOTS_DIR
+import json
+from datetime import datetime, timezone
 from app.schemas import PageStructure, PageElement, GeneratedScenario, ScenarioStep
-from app.models import Scan
+from app.models import Scan, Scenario, Run, RunStep
+from app.runner import StepResult
 
 FIXTURE_URL = (Path(__file__).parent / "fixtures" / "login_page.html").as_uri()
 
@@ -180,7 +183,7 @@ def test_get_scan_returns_404_for_scan_owned_by_another_user(client):
 
     assert resp.status_code == 404
 
-def test_run_scan_executes_scenarios_and_persists_results(authenticated_client, monkeypatch, tmp_path):
+def test_run_scan_executes_scenarios_and_persists_results(authenticated_client, db_session, monkeypatch, tmp_path):
     monkeypatch.setattr("app.api.scans.SCREENSHOTS_DIR", tmp_path)
 
     project = authenticated_client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
@@ -206,15 +209,26 @@ def test_run_scan_executes_scenarios_and_persists_results(authenticated_client, 
 
     resp = authenticated_client.post(f"/scans/{scan['id']}/run")
 
-    assert resp.status_code == 200
-    runs = resp.json()
-    assert len(runs) == 1
-    assert runs[0]["status"] == "passed"
-    assert len(runs[0]["steps"]) == 2
-    assert all(step["status"] == "passed" for step in runs[0]["steps"])
-    run_id = runs[0]["id"]
-    for index, step in enumerate(runs[0]["steps"]):
-        assert step["screenshot_path"] == f"/runs/{run_id}/screenshots/{index}"
+    # 202 is returned immediately with pending/empty-steps placeholders — the
+    # actual execution happens in a background task. TestClient runs
+    # background tasks to completion before handing the response back, so by
+    # the time we get here the run has already finished; we assert the final
+    # state via the db_session (which shares the background job's engine).
+    assert resp.status_code == 202
+    pending_runs = resp.json()
+    assert len(pending_runs) == 1
+    assert pending_runs[0]["status"] == "pending"
+    assert pending_runs[0]["steps"] == []
+    run_id = pending_runs[0]["id"]
+
+    db_session.expire_all()
+    finished_run = db_session.get(Run, run_id)
+    assert finished_run.status == "passed"
+    steps = db_session.query(RunStep).filter_by(run_id=run_id).order_by(RunStep.step_index).all()
+    assert len(steps) == 2
+    assert all(step.status == "passed" for step in steps)
+    for index, step in enumerate(steps):
+        assert step.screenshot_path == f"/runs/{run_id}/screenshots/{index}"
 
 def test_run_scan_not_found_returns_404(authenticated_client):
     resp = authenticated_client.post("/scans/999/run")
@@ -320,3 +334,111 @@ def test_screenshot_proxy_returns_404_for_run_owned_by_another_user(client, monk
 def test_screenshot_proxy_returns_404_for_nonexistent_run(authenticated_client):
     resp = authenticated_client.get("/runs/999999/screenshots/0")
     assert resp.status_code == 404
+
+
+def test_run_scan_returns_202_with_pending_runs_and_empty_steps(authenticated_client, db_session, monkeypatch):
+    project = authenticated_client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
+    fake_structure = PageStructure(url="https://example.com", elements=[])
+    fake_scenarios = [
+        GeneratedScenario(title="First", steps=[ScenarioStep(action="goto", value="https://example.com")]),
+        GeneratedScenario(title="Second", steps=[ScenarioStep(action="goto", value="https://example.com")]),
+    ]
+    with patch("app.api.scans.extract_page_structure", return_value=fake_structure), \
+         patch("app.api.scans.get_ai_provider") as mock_get_provider:
+        mock_get_provider.return_value.generate_scenarios.return_value = fake_scenarios
+        scan = authenticated_client.post(f"/projects/{project['id']}/scans", json={
+            "target_url": "https://example.com",
+            "description": "two scenarios",
+        }).json()
+
+    with patch("app.api.scans.run_scenario", return_value=[StepResult(status="passed", log_message="ok")]):
+        resp = authenticated_client.post(f"/scans/{scan['id']}/run")
+
+    assert resp.status_code == 202
+    body = resp.json()
+    assert len(body) == 2
+    for run in body:
+        assert run["status"] == "pending"
+        assert run["steps"] == []
+
+
+def test_run_scan_returns_409_when_already_in_progress(authenticated_client, db_session):
+    project = authenticated_client.post("/projects", json={"name": "Demo", "base_url": "https://example.com"}).json()
+    fake_structure = PageStructure(url="https://example.com", elements=[])
+    fake_scenarios = [GeneratedScenario(title="Only", steps=[ScenarioStep(action="goto", value="https://example.com")])]
+    with patch("app.api.scans.extract_page_structure", return_value=fake_structure), \
+         patch("app.api.scans.get_ai_provider") as mock_get_provider:
+        mock_get_provider.return_value.generate_scenarios.return_value = fake_scenarios
+        scan = authenticated_client.post(f"/projects/{project['id']}/scans", json={
+            "target_url": "https://example.com",
+            "description": "one scenario",
+        }).json()
+
+    scenario_id = db_session.query(Scenario).filter_by(scan_id=scan["id"]).first().id
+    db_session.add(Run(scenario_id=scenario_id, status="running", started_at=datetime.now(timezone.utc)))
+    db_session.commit()
+
+    resp = authenticated_client.post(f"/scans/{scan['id']}/run")
+
+    assert resp.status_code == 409
+
+
+def test_run_scan_requires_auth_and_ownership(client):
+    resp = client.post("/scans/1/run")
+    assert resp.status_code == 401
+
+
+def test_execute_scan_runs_writes_steps_incrementally_and_finishes(tmp_path, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+    from app.db import Base, make_engine
+    import app.db as db_module
+    from app.api.scans import _execute_scan_runs
+    from app.models import Project, User
+
+    test_engine = make_engine(f"sqlite:///{tmp_path / 'test.db'}")
+    Base.metadata.create_all(test_engine)
+    TestSessionLocal = sessionmaker(bind=test_engine, expire_on_commit=False)
+    monkeypatch.setattr(db_module, "SessionLocal", TestSessionLocal)
+
+    setup_session = TestSessionLocal()
+    user = User(email="runner@example.com", password_hash="x")
+    setup_session.add(user)
+    setup_session.flush()
+    project = Project(user_id=user.id, name="Demo", base_url="https://example.com")
+    setup_session.add(project)
+    setup_session.flush()
+    scan = Scan(project_id=project.id, target_url="https://example.com", description="d", page_structure_json="{}", ai_provider="claude", status="ready")
+    setup_session.add(scan)
+    setup_session.flush()
+    scenario = Scenario(scan_id=scan.id, title="Demo scenario", steps_json=json.dumps([{"action": "goto", "value": "https://example.com"}]))
+    setup_session.add(scenario)
+    setup_session.flush()
+    run = Run(scenario_id=scenario.id, status="pending", started_at=datetime.now(timezone.utc))
+    setup_session.add(run)
+    setup_session.commit()
+    run_id = run.id
+    setup_session.close()
+
+    seen_statuses_during_run = []
+
+    def fake_run_scenario(generated, base_url, screenshot_dir, on_step=None):
+        check_session = TestSessionLocal()
+        seen_statuses_during_run.append(check_session.get(Run, run_id).status)
+        check_session.close()
+        if on_step is not None:
+            on_step(0, StepResult(status="passed", log_message="ok"))
+        return [StepResult(status="passed", log_message="ok")]
+
+    with patch("app.api.scans.run_scenario", side_effect=fake_run_scenario):
+        _execute_scan_runs([run_id])
+
+    verify_session = TestSessionLocal()
+    finished_run = verify_session.get(Run, run_id)
+    assert finished_run.status == "passed"
+    assert finished_run.finished_at is not None
+    steps = verify_session.query(RunStep).filter_by(run_id=run_id).all()
+    assert len(steps) == 1
+    assert steps[0].status == "passed"
+    verify_session.close()
+
+    assert seen_statuses_during_run == ["running"]
