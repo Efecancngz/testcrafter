@@ -9,7 +9,8 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState(null);
   const [scans, setScans] = useState(null);
   const [notFound, setNotFound] = useState(false);
-  const [error, setError] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [createError, setCreateError] = useState(null);
   const [url, setUrl] = useState("");
   const [description, setDescription] = useState("");
   const [creating, setCreating] = useState(false);
@@ -25,27 +26,27 @@ export default function ProjectDetailPage() {
         if (err.status === 404) {
           setNotFound(true);
         } else {
-          setError(err.message);
+          setLoadError(err.message);
         }
       });
   }, [projectId]);
 
   async function handleCreateScan(e) {
     e.preventDefault();
-    setError(null);
+    setCreateError(null);
     setCreating(true);
     try {
       const scan = await createScan(projectId, url, description);
       navigate(`/scans/${scan.id}`);
     } catch (err) {
-      setError(err.message);
+      setCreateError(err.message);
     } finally {
       setCreating(false);
     }
   }
 
-  if (error) {
-    return <p className="text-sm text-red-400">{error}</p>;
+  if (loadError) {
+    return <p className="text-sm text-red-400">{loadError}</p>;
   }
 
   if (notFound) {
@@ -86,7 +87,7 @@ export default function ProjectDetailPage() {
         </button>
       </form>
 
-      {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
+      {createError && <p className="mb-4 text-sm text-red-400">{createError}</p>}
 
       {scans.length === 0 && (
         <p className="text-sm text-muted-foreground">No scans yet — start one above.</p>
