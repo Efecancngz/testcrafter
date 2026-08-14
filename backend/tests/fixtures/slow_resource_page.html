@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Slow resource page</title>
+  </head>
+  <body>
+    <h1>Page with a resource that never finishes</h1>
+
+    <!--
+      10.255.255.1 is non-routable, so this request hangs rather than failing
+      fast. The "load" event therefore never fires for this page, which is
+      exactly the real-world condition (ad/analytics/CDN stalls) that made the
+      crawler time out before it waited on "domcontentloaded" instead.
+    -->
+    <img src="http://10.255.255.1/never-loads.png" alt="stalled">
+
+    <form id="login-form">
+      <input id="username" type="text" name="username">
+      <input id="password" type="password" name="password">
+      <button id="submit">Log in</button>
+    </form>
+    <a href="/forgot">Forgot password?</a>
+  </body>
+</html>

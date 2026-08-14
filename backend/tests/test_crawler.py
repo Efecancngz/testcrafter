@@ -6,6 +6,7 @@ import pytest
 FIXTURE_URL = (Path(__file__).parent / "fixtures" / "login_page.html").as_uri()
 CLOUDFLARE_FIXTURE_URL = (Path(__file__).parent / "fixtures" / "cloudflare_challenge.html").as_uri()
 CLOUDFLARE_DOM_FIXTURE_URL = (Path(__file__).parent / "fixtures" / "cloudflare_challenge_dom.html").as_uri()
+SLOW_RESOURCE_FIXTURE_URL = (Path(__file__).parent / "fixtures" / "slow_resource_page.html").as_uri()
 
 
 def test_extract_page_structure_finds_inputs_and_buttons():
@@ -18,6 +19,24 @@ def test_extract_page_structure_finds_inputs_and_buttons():
 
     submit_button = next(el for el in structure.elements if el.selector == "#submit")
     assert submit_button.text == "Log in"
+
+
+def test_extract_page_structure_completes_when_a_resource_never_loads():
+    # Regression: the crawler used to wait for the "load" event, so a single
+    # stalled subresource (ad, analytics beacon, slow CDN image) hung the whole
+    # navigation until it timed out and the scan was recorded as "failed".
+    # Waiting on "domcontentloaded" means a parsed DOM is enough.
+    import time
+
+    started = time.monotonic()
+    structure = extract_page_structure(SLOW_RESOURCE_FIXTURE_URL)
+    elapsed = time.monotonic() - started
+
+    submit_button = next(el for el in structure.elements if el.selector == "#submit")
+    assert submit_button.text == "Log in"
+    # Comfortably under the 30s navigation timeout the old behavior would hit,
+    # while leaving room for the best-effort networkidle settle window.
+    assert elapsed < 15
 
 
 def test_extract_page_structure_raises_on_cloudflare_challenge_title():
