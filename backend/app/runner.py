@@ -2,6 +2,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+from app.browser import BROWSER_ARGS, NAVIGATION_TIMEOUT_MS, WAIT_UNTIL
 from app.schemas import GeneratedScenario
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ def run_scenario(scenario: GeneratedScenario, base_url: str, screenshot_dir: Pat
     screenshot_dir.mkdir(parents=True, exist_ok=True)
     results: list[StepResult] = []
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        browser = p.chromium.launch(args=BROWSER_ARGS)
         page = browser.new_page()
         try:
             for index, step in enumerate(scenario.steps):
@@ -54,7 +55,7 @@ def _run_step(page, step, base_url: str, screenshot_dir: Path, step_index: int) 
     action = _normalize_action(step.action)
     try:
         if action == "goto":
-            page.goto(step.value)
+            page.goto(step.value, wait_until=WAIT_UNTIL, timeout=NAVIGATION_TIMEOUT_MS)
         elif action == "click":
             page.click(step.selector)
         elif action == "fill":

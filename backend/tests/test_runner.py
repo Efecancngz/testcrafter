@@ -129,3 +129,63 @@ def test_run_scenario_fails_for_genuinely_unknown_action(tmp_path):
 
     assert results[0].status == "failed"
     assert "unknown action" in results[0].log_message
+
+def test_run_scenario_navigates_with_shared_browser_settings(tmp_path, monkeypatch):
+    # Regression: the runner and the crawler each launched their own browser
+    # with their own navigation settings. A fix applied to the crawler left the
+    # runner still hanging on the same sites, so a scan could be generated fine
+    # and then fail at execution for a reason already fixed one file over.
+    from app import browser as browser_config
+    from app import runner as runner_module
+
+    recorded = {}
+    real_sync_playwright = runner_module.sync_playwright
+
+    class RecordingPlaywright:
+        """Passes calls through to the real Playwright, noting how the runner
+        launches the browser and how it navigates."""
+
+        def __init__(self):
+            self._ctx = real_sync_playwright()
+
+        def __enter__(self):
+            p = self._ctx.__enter__()
+            chromium_launch = p.chromium.launch
+
+            def launch(**kwargs):
+                recorded["launch_args"] = kwargs.get("args")
+                browser = chromium_launch(**kwargs)
+                new_page = browser.new_page
+
+                def make_page(**page_kwargs):
+                    page = new_page(**page_kwargs)
+                    page_goto = page.goto
+
+                    def goto(url, **goto_kwargs):
+                        recorded["goto_kwargs"] = goto_kwargs
+                        return page_goto(url, **goto_kwargs)
+
+                    page.goto = goto
+                    return page
+
+                browser.new_page = make_page
+                return browser
+
+            p.chromium.launch = launch
+            return p
+
+        def __exit__(self, *exc_info):
+            return self._ctx.__exit__(*exc_info)
+
+    monkeypatch.setattr(runner_module, "sync_playwright", RecordingPlaywright)
+
+    scenario = GeneratedScenario(
+        title="Navigate to the fixture",
+        steps=[ScenarioStep(action="goto", value=FIXTURE_URL)],
+    )
+    results = run_scenario(scenario, base_url="", screenshot_dir=tmp_path)
+
+    assert results[0].status == "passed"
+    assert recorded["launch_args"] == browser_config.BROWSER_ARGS
+    assert recorded["goto_kwargs"]["wait_until"] == browser_config.WAIT_UNTIL
+    assert recorded["goto_kwargs"]["timeout"] == browser_config.NAVIGATION_TIMEOUT_MS
